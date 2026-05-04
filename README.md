@@ -25,6 +25,20 @@ A tiny macOS task widget that lives as a vertical strip pinned to the right edge
 - macOS 13+
 - Swift 5.9 / Xcode 15+
 
+## Install (from a release DMG)
+
+The DMG is **ad-hoc signed but not notarized** (notarization needs a paid Apple Developer account). On first launch macOS will show *"CornerTasks Not Opened — Apple could not verify…"* with only **Done** / **Move to Bin** buttons. That's normal. Pick one of:
+
+**Easiest — Terminal:** drag the app to `/Applications`, then run
+
+```bash
+xattr -dr com.apple.quarantine /Applications/CornerTasks.app
+```
+
+and launch it. You only need to do this once per install.
+
+**No Terminal:** drag the app to `/Applications`, double-click it once and dismiss the warning, then open **System Settings → Privacy & Security**, scroll to the bottom, and click **Open Anyway** next to the CornerTasks entry.
+
 ## Run from source
 
 ```bash
