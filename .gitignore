@@ -1,0 +1,21 @@
+# Swift / SPM
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/
+
+# macOS
+.DS_Store
+
+# vscode & cluade code
+.vscode/
+.cluade/
+
+# Build artifacts
+CornerTasks.app/
+CornerTasks.iconset/
+CornerTasks.icns
+dmg/
+
+# Release output (DMG is generated, don't commit)
+release/*.dmg
