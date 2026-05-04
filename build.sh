@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 # Build CornerTasks.app and package it as a DMG.
+#
+# Env vars:
+#   UNIVERSAL=1        Build a universal arm64+x86_64 binary (requires full Xcode).
+#                      Defaults off for fast local dev. CI sets this.
+#   VERSION=x.y.z      Override CFBundleVersion / CFBundleShortVersionString in
+#                      the bundled Info.plist. Defaults to whatever's in the file.
+#   DMG_NAME=foo.dmg   Output DMG filename (placed under release/). Default: CornerTasks.dmg
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,7 +18,9 @@ ICON_SRC="icon.png"
 ICONSET="${APP_NAME}.iconset"
 ICNS="${APP_NAME}.icns"
 DMG_DIR="dmg"
-DMG_OUT="release/${APP_NAME}.dmg"
+DMG_NAME="${DMG_NAME:-${APP_NAME}.dmg}"
+DMG_OUT="release/${DMG_NAME}"
+UNIVERSAL="${UNIVERSAL:-0}"
 
 cleanup() {
   rm -rf "$ICONSET" "$ICNS" "$APP_BUNDLE" "$DMG_DIR"
@@ -33,9 +42,15 @@ sips -z 512 512   "$ICON_SRC" --out "$ICONSET/icon_512x512.png"   >/dev/null
 sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
 iconutil -c icns "$ICONSET"
 
-# 2. Build the binary
-swift build -c release
-BIN_PATH="$(swift build -c release --show-bin-path)"
+# 2. Build the binary (universal if requested, host arch otherwise)
+if [[ "$UNIVERSAL" == "1" ]]; then
+  echo "Building universal (arm64 + x86_64)…"
+  swift build -c release --arch arm64 --arch x86_64
+  BIN_PATH="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+else
+  swift build -c release
+  BIN_PATH="$(swift build -c release --show-bin-path)"
+fi
 
 # 3. Assemble the .app bundle
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
@@ -44,8 +59,18 @@ cp "$BIN_PATH/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/"
 cp AppBundle/Info.plist "$APP_BUNDLE/Contents/Info.plist"
 cp "$ICNS" "$APP_BUNDLE/Contents/Resources/${APP_NAME}.icns"
 
+# Optional version stamping.
+if [[ -n "${VERSION:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION"           "$APP_BUNDLE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
+fi
+
 # Ad-hoc sign so launchd / Gatekeeper accept the unsigned local build.
 codesign --force --deep --sign - "$APP_BUNDLE"
+
+# Sanity-check architectures so a misconfigured CI run doesn't ship arm-only.
+echo "Bundle architectures:"
+lipo -info "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # 4. Build the DMG
 mkdir -p release

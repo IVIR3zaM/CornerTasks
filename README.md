@@ -40,12 +40,33 @@ open Package.swift
 ## Build a distributable .app + .dmg
 
 ```bash
-./build.sh
+./build.sh                           # host arch only — fast local dev
+UNIVERSAL=1 ./build.sh               # universal arm64 + x86_64 (needs full Xcode)
+VERSION=0.1.0 UNIVERSAL=1 ./build.sh # also stamp Info.plist with a version
 ```
 
-This generates the `.icns` from `icon.png`, builds a release binary, assembles `CornerTasks.app`, ad-hoc signs it, and writes `release/CornerTasks.dmg`.
+This generates the `.icns` from `icon.png`, builds the release binary, assembles `CornerTasks.app`, ad-hoc signs it, and writes the DMG to `release/`. `build.sh` runs `lipo -info` at the end so you can confirm both slices are present.
 
 `build.sh` lives at the repo root by convention — it's the single entry point a contributor runs after cloning. No need to hide it under a `scripts/` folder for a project this size.
+
+### Releases via GitHub Actions
+
+A push of a `v*` tag (or a manual `workflow_dispatch`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which:
+
+1. Builds a **universal** (arm64 + x86_64) DMG on a `macos-14` runner with full Xcode.
+2. Uploads it as a workflow artifact.
+3. On tag push, attaches it to a GitHub Release with auto-generated notes.
+
+Cut a release:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+### Architectures: do you need separate Intel / Apple Silicon builds?
+
+No. The universal binary contains both slices in one `.app`; macOS picks the right one at launch. Ship one DMG.
 
 ## Where data is stored
 
