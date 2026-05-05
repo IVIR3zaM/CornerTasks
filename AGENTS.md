@@ -97,6 +97,7 @@ In v0.1.0 the macOS app lives at the repo root. Iteration 1 in [`ITERATIONS.md`]
 - **Pull:** every 1 minute the app calls a `since=<lastSyncedAt>` endpoint and merges any remote events. Only runs while cloud sync is enabled.
 - **Conflict resolution:** last-writer-wins by event `updatedAt`. Per-field merging is out of scope; whole-task replacement is fine.
 - **Archive cutoff:** archived tasks with `completedAt` older than 60 days are not pushed and are ignored on pull.
+- **API auth:** standards-aligned **DID-Auth → Bearer JWT** flow. The client requests a one-time challenge from `POST /v1/auth/challenge`, signs it as a DID-JWT (`alg: "EdDSA"`, `kid: <did>#<methodSpecificId>`, SIOPv2-shaped claims), exchanges it at `POST /v1/auth/token` for a short-lived bearer JWT, and sends `Authorization: Bearer <token>` on every sync call. The bearer JWT is server-issued (per-deploy EdDSA signing key in SSM) with default `exp = 1 h`; clients re-run the challenge flow on expiry. See `docs/sync-protocol.md` §8.
 
 ## Identity & encryption
 

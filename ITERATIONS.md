@@ -18,7 +18,7 @@ Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.
 - [x] **1.** Integration tests for the current v0.1.0 macOS app (no source changes)
 - [x] **2.** Repo restructure + split the Swift file + add unit tests (integration tests still pass)
 - [x] **3.** AWS backend skeleton + S3 static-site bucket + "bring your own AWS" docs + standalone-mode default in app config
-- [ ] **4.** Shared sync protocol spec (`docs/sync-protocol.md`)
+- [x] **4.** Shared sync protocol spec (`docs/sync-protocol.md`)
 - [ ] **5.** Backend impl: DynamoDB schema, push/pull handlers
 - [ ] **6.** Web app skeleton (Vite + React, mobile-first), local-only, S3 deploy script
 - [ ] **7.** Crypto on macOS: mnemonic → Ed25519 → `did:key` + AES-256-GCM data encryption
@@ -171,9 +171,14 @@ Add a "How private is cloud sync?" section explaining:
   - `GET /v1/sync/pull?accountDid=...&since=<ISO8601>` → `{ events: Event[], serverTime }`.
 - **Conflict resolution:** server keeps the latest event per `taskId` keyed by max `updatedAt`. Tie-break: lexicographic `eventId`.
 - **Archive cutoff:** clients MUST NOT push events for archived tasks where `completedAt < now - 60 days`. Server filters such events out on pull (defense-in-depth).
-- **Auth:** v0.2.0 ships unauthenticated beyond `accountDid`. Document this explicitly:
-  - "Anyone who knows your `did:key` can read your encrypted blobs. They cannot decrypt them. They CAN write garbage events under your DID, which would pollute your account. Treat your DID as semi-secret."
-  - v0.2.x will add request signing: every push/pull is signed with the Ed25519 private key; server verifies the signature against the DID. Spec stub goes in this doc.
+- **Auth:** standards-aligned **DID-Auth → Bearer JWT** flow. The user's `did:key` is the credential; possession is proven by signing a server-issued challenge as a **DID-JWT** (compact JWS, `alg: "EdDSA"`, conforming to the SIOPv2 / DID-JWT shape). On success the server returns a short-lived bearer JWT used as `Authorization: Bearer <token>` for every sync call. Spec must cover:
+  - **`POST /v1/auth/challenge`** body `{ accountDid }` → `{ challenge, audience, expiresAt }`. Challenge is 32 random bytes (base64url), single-use, scoped to the DID, 5-minute server-side TTL. `audience` is the deploy's canonical API base URL.
+  - **`POST /v1/auth/token`** body `{ accountDid, didJwt }`. `didJwt` is a compact JWS with header `{ alg: "EdDSA", typ: "JWT", kid: "<did>#<methodSpecificId>" }` and claims `{ iss, sub, aud, nonce, iat, exp }`. Server verifies signature against the Ed25519 public key recovered from the DID, checks `iss == sub == accountDid`, `aud == audience`, `nonce` matches a live challenge (atomically consumed), and `exp - iat ≤ 300s`. Returns `{ accessToken, tokenType: "Bearer", expiresIn, expiresAt }`.
+  - **Bearer JWT** (server-issued): `alg: "EdDSA"` by default with the deploy's signing key (stored in SSM Parameter Store as a `SecureString`); `HS256` with a per-deploy secret is a documented alternative. Claims `{ iss, sub: accountDid, aud: "cornertasks-sync-v1", iat, exp, jti }`. Default `exp` is 1 hour, configurable per deploy. No refresh token in v0.2.0 — clients re-run challenge/token on expiry or `401 token_expired`.
+  - **Sync calls** require `Authorization: Bearer <token>`. The server checks signature, `aud`, `exp`, and binds the JWT's `sub` to the request's `accountDid` and to every event's `accountDid` (mismatch → `403 did_mismatch`).
+  - **Public-key recovery from `did:key`:** strip the `did:key:z` prefix, base58btc-multibase decode, verify the `0xed 0x01` multicodec prefix, take the next 32 bytes as the Ed25519 public key. Same routine used by the macOS app, the web app, and the backend (cross-tested via `docs/crypto-vectors.json`).
+  - **Failure responses:** `400 invalid_did_jwt | invalid_did`; `401 bad_signature | bad_audience | unknown_challenge | bad_lifetime | missing_token | bad_token | token_expired`; `403 did_mismatch`. All `401`s carry `WWW-Authenticate: Bearer realm="cornertasks"`.
+  - **Threat note:** "Knowing someone's `did:key` lets an attacker request a challenge but does not let them read, write, or delete events — they cannot produce a valid DID-JWT without the private key. A stolen bearer JWT grants full access until `exp` (default 1 hour); tokens are held in memory only, never on disk. The mnemonic is the only secret that fully compromises the account."
 - **Worked examples:** include curl-able JSON for an upsert and a delete.
 
 **Acceptance criteria:** doc exists, is complete, is referenced from `AGENTS.md` and the root `README.md`'s privacy section.
@@ -193,11 +198,24 @@ Add a "How private is cloud sync?" section explaining:
   - GSI on `(PK, updatedAt)` for `pull?since=...`.
 - `push` handler: conditional write; reject events with `updatedAt <= stored.updatedAt` as `"stale"`. Reject malformed events as `"invalid"` (server cannot decrypt; only checks shape and field types). Validate with zod.
 - `pull` handler: query GSI ascending; page if needed; filter `archivedCompletedAt` older than 60 days.
-- Tests: dedup, staleness, since-filter, archive cutoff. Integration test against `dynamodb-local` in CI.
+- **Auth handlers + Bearer middleware** (`backend/aws/src/handlers/auth/` and `backend/aws/src/lib/auth.ts`) per `docs/sync-protocol.md` §8:
+  - `POST /v1/auth/challenge` — generate 32 random bytes (base64url), store `(accountDid, challenge) → expiresAt` in a DynamoDB `auth_challenges` table with TTL of 5 minutes (DDB native TTL on a `ttl` attribute). Return `{ challenge, audience, expiresAt }`. `audience` is read from the deploy's `CanonicalApiUrl` env var (set by SAM from the API Gateway stage URL).
+  - `POST /v1/auth/token` — parse the DID-JWT, recover the Ed25519 public key from `accountDid`, verify the JWS signature with `@noble/ed25519`, check `iss`/`sub`/`aud`/`nonce`/`iat`/`exp` per spec, atomically delete the challenge row (conditional `DeleteItem` — replay attempts get `unknown_challenge`), then mint a server-issued bearer JWT.
+  - Bearer JWT signing: server EdDSA keypair generated on first deploy, public key in SSM Parameter Store as a `String`, private key as `SecureString` at `/cornertasks/<stage>/jwt-signing-key`. CDK/SAM template provisions both. Default `exp = iat + 3600`. `HS256` mode (single `SecureString` secret) is supported via a `JWT_ALG` env var and documented in `backend/aws/README.md`.
+  - `requireBearer(event)` middleware wrapped around both sync handlers: parse `Authorization: Bearer ...`, verify signature + `aud == "cornertasks-sync-v1"` + `exp`, extract `sub`, and assert it matches the request's `accountDid` and every event's `accountDid` (`403 did_mismatch` on disagreement).
+  - All `401` responses include `WWW-Authenticate: Bearer realm="cornertasks"`.
+- DynamoDB additions:
+  - `auth_challenges` table (or a single-table item type with `PK = AUTHCHAL#<accountDid>`, `SK = <challenge>`, `ttl` attribute).
+- Tests: dedup, staleness, since-filter, archive cutoff, **plus** auth tests:
+  - challenge issued, consumed once, replay rejected as `unknown_challenge`;
+  - DID-JWT verification: valid → token; wrong-key signature → `bad_signature`; swapped `aud` → `bad_audience`; `exp - iat > 300s` → `bad_lifetime`; malformed JWS → `400 invalid_did_jwt`;
+  - Bearer middleware: valid → 200; tampered signature → `bad_token`; expired → `token_expired`; `sub` ≠ body `accountDid` → `did_mismatch`;
+  - Integration test against `dynamodb-local` running the full challenge → token → push → pull round-trip.
+- `backend/aws/scripts/sign-did-jwt.ts` — small helper (uses `@noble/ed25519`) that takes a mnemonic + `--audience` + `--challenge` and prints a DID-JWT, used by `docs/sync-protocol.md` §9 hand-testing examples.
 
-**Acceptance criteria:** `npm test` passes; deploy to dev and run a curl round-trip from `docs/sync-protocol.md`.
+**Acceptance criteria:** `npm test` passes; deploy to dev and run the curl round-trip from `docs/sync-protocol.md` end-to-end (challenge → token → push → pull).
 
-**Out of scope:** clients, signed requests.
+**Out of scope:** clients (they call this auth path in iterations 11 and 12).
 
 ---
 
@@ -243,7 +261,7 @@ Add a "How private is cloud sync?" section explaining:
 
 **Deliverables (`apps/macos/Sources/CornerTasks/Crypto/`):**
 - `Mnemonic.swift` — generate, validate, BIP-39 seed.
-- `Identity.swift` — Ed25519 keypair from seed; `accountDid` string; `sign`/`verify` (forward-looking, used by v0.2.x request signing).
+- `Identity.swift` — Ed25519 keypair from seed; `accountDid` string; `sign(message:)` / `verify(signature:message:)`; plus `makeDidJwt(audience:nonce:)` that emits a compact JWS (`alg: "EdDSA"`, `kid: "<did>#<methodSpecificId>"`, claims `{ iss, sub, aud, nonce, iat, exp }` with `exp = iat + 300`) per `docs/sync-protocol.md` §8.2. Used by the sync engine to acquire bearer tokens (iteration 11).
 - `DataKey.swift` — HKDF → 32-byte symmetric key.
 - `SymmetricBox.swift` — AES-256-GCM encrypt/decrypt via `CryptoKit.AES.GCM`. Returns `(ciphertext, nonce)`.
 - `MnemonicStore.swift` — Keychain (service `com.cornertasks.mnemonic`).
@@ -252,7 +270,8 @@ Add a "How private is cloud sync?" section explaining:
   - Mnemonic → DID is stable across runs.
   - Round-trip encrypt/decrypt; wrong key throws.
   - did:key encoding matches the W3C DID spec test vector for Ed25519.
-  - Cross-impl fixtures (a known mnemonic → expected DID, expected HKDF key hex, expected ciphertext for fixed plaintext+nonce) emitted to `docs/crypto-vectors.json` for iteration 8 to consume.
+  - DID-JWT vector: for a fixed mnemonic + audience + nonce + iat, `Identity.makeDidJwt` produces a known compact JWS string. Tested here and in iteration 8 against the same `docs/crypto-vectors.json` entry.
+  - Cross-impl fixtures (a known mnemonic → expected DID, expected HKDF key hex, expected ciphertext for fixed plaintext+nonce, expected DID-JWT for fixed audience+nonce+iat) emitted to `docs/crypto-vectors.json` for iteration 8 to consume.
 
 **Acceptance criteria:** `swift test` passes. No UI changes. `docs/crypto-vectors.json` exists.
 
@@ -266,7 +285,9 @@ Add a "How private is cloud sync?" section explaining:
 - `@scure/bip39` for mnemonic + seed.
 - `@noble/ed25519` for Ed25519 (small, audited, no native deps).
 - WebCrypto for HKDF + AES-GCM.
-- did:key encoder using `@scure/base` for base58btc.
+- did:key encoder/decoder using `@scure/base` for base58btc (decoder also used by the backend's auth middleware in iteration 5 — share the helper from `apps/web/src/crypto/` or copy verbatim with a vector test that asserts equivalence).
+- `sign(message)` / `verify(signature, message, publicKey)` helpers used by the web sync engine (iteration 12) and reused in the backend auth middleware.
+- `makeDidJwt({ audience, nonce })` mirroring the macOS helper from iteration 7 — emits a compact JWS (`alg: "EdDSA"`, `kid: "<did>#<methodSpecificId>"`, claims `{ iss, sub, aud, nonce, iat, exp }` with `exp = iat + 300`). Tested against the DID-JWT vector in `docs/crypto-vectors.json` so macOS and web produce byte-identical JWTs for the same inputs.
 - Mnemonic stored in IndexedDB under one keyed entry, with `// SENSITIVE` comments and a clearly-marked accessor.
 - TS unit tests:
   - Round-trip encrypt/decrypt.
@@ -338,12 +359,19 @@ Add a "How private is cloud sync?" section explaining:
   - `pullSince()` every 1 minute. Decrypts and applies events with `updatedAt > local`. Advances `lastSyncedAt`.
 - Archive cutoff: when building a push for a task with `completedAt < now - 60d`, skip it and mark the queue row sent.
 - `SyncTransport` protocol → `URLSessionTransport` (real) and `FakeTransport` (tests).
+- `Sync/AuthSession.swift` — owns the bearer-token lifecycle per `docs/sync-protocol.md` §8:
+  - On first sync call (or whenever the cached token is within 60 s of `expiresAt`), runs the challenge flow: `POST /v1/auth/challenge` → `Identity.makeDidJwt(audience:nonce:)` → `POST /v1/auth/token` → cache `{ accessToken, expiresAt }` in memory only (never on disk).
+  - Exposes `withBearer { token in ... }` that the transport uses to attach `Authorization: Bearer <token>`.
+  - On `401 token_expired` or `401 bad_token`, drops the cached token and retries the *original* sync request once with a fresh token before giving up for this tick.
 - Tests:
   - Round-trip via fake transport.
   - Stale-write rejection handled.
   - Archive cutoff respected on push.
   - Pull merges respect last-writer-wins.
   - Engine does nothing while cloud sync is disabled.
+  - `AuthSession` unit tests: caches token until near-expiry; refreshes proactively; on `401 token_expired` drops cache and re-authenticates exactly once before failing the tick; never persists the token.
+  - DID-JWT produced by the engine matches the spec vector from iteration 7.
+  - 401 handling on sync calls: `bad_token`/`token_expired` triggers re-auth + single retry; `did_mismatch` is logged as a programming error and does not retry. Queue rows are NOT marked sent on auth failures — they retry on the next tick.
 
 **Acceptance criteria:** `swift test` passes; manual: two macOS instances on the same mnemonic + same `ApiUrl` (different `~/Library/...` paths via the iteration-2 directory init) converge within ~1 minute.
 
@@ -357,7 +385,8 @@ Add a "How private is cloud sync?" section explaining:
 - IndexedDB schema mirrors macOS (`updatedAt`, `deletedAt`, `syncQueue` object store).
 - `apps/web/src/sync/SyncEngine.ts` with identical timer cadence and conflict rules.
 - Tab visibility: when hidden, pause timers; on `visibilitychange → visible`, immediately call `pullSince()` and `flushPushes()`.
-- Tests with a fake transport.
+- `apps/web/src/sync/authSession.ts` — same lifecycle as the macOS `AuthSession`: challenge → DID-JWT (via the iteration 8 `makeDidJwt` helper) → bearer token cached in memory only. Token never written to IndexedDB or `localStorage`. Real transport attaches `Authorization: Bearer <token>` and on `401 token_expired`/`bad_token` drops the cache and retries once.
+- Tests with a fake transport plus an auth-session test that reuses the macOS DID-JWT vector to confirm cross-implementation parity. Extends `docs/crypto-vectors.json` with a fixed `(audience, nonce, iat)` → `didJwt` entry asserted by both apps.
 
 ---
 
@@ -400,4 +429,4 @@ Each bug found gets a regression test in iterations 11 or 12 as appropriate.
 
 - **Where to derive Ed25519 from BIP-39 seed:** simplest is `HKDF-SHA256(seed, info="cornertasks-identity-ed25519", 32)` → seed for Ed25519. Alternative: SLIP-0010 / BIP32-Ed25519. Going with HKDF for simplicity unless a contributor argues for SLIP-0010 with a concrete reason.
 - **CloudFront price class** in iteration 3: default to `PriceClass_100` (US/EU) to keep BYO-AWS bills small; document that users can change it in `template.yaml`.
-- **Future request signing** (v0.2.x, deferred): every push/pull is Ed25519-signed; server verifies via the multibase-encoded DID. Spec stub goes into `docs/sync-protocol.md` in iteration 4 so clients and server know what's coming.
+- ~~**Future request signing**~~ (resolved 2026-05-05): Ed25519 request signing is part of v0.2.0 — specified in iteration 4, enforced by the backend in iteration 5, and emitted by clients in iterations 11 and 12. See `docs/sync-protocol.md` §8.
