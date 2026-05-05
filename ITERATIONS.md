@@ -15,7 +15,7 @@ Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.
 
 ## Status
 
-- [ ] **1.** Integration tests for the current v0.1.0 macOS app (no source changes)
+- [x] **1.** Integration tests for the current v0.1.0 macOS app (no source changes)
 - [ ] **2.** Repo restructure + split the Swift file + add unit tests (integration tests still pass)
 - [ ] **3.** AWS backend skeleton + S3 static-site bucket + "bring your own AWS" docs + standalone-mode default in app config
 - [ ] **4.** Shared sync protocol spec (`docs/sync-protocol.md`)
@@ -47,7 +47,7 @@ Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.
   - `moveActive` reorders persistently.
   - JSON migration: write a synthetic `tasks.json` into the temp dir, open the store, assert rows imported and the JSON file renamed to `tasks.json.migrated`.
   - Schema upgrade: pre-create a tasks table without `due_date`, open the store, assert the column is added (proves `columnExists` + `ALTER TABLE` path).
-- These tests need to construct `TaskStore` against an arbitrary directory. v0.1.0's `TaskStore.init` hardcodes `~/Library/Application Support`. **Workaround for this iteration:** override `HOME` in the test process before constructing the store (`setenv("HOME", tmp.path, 1)`). This needs no source change.
+- These tests need to construct `TaskStore` against an arbitrary directory. v0.1.0's `TaskStore.init` hardcodes `~/Library/Application Support`. **Workaround for this iteration:** override the home directory in the test process before constructing the store. The original plan was `setenv("HOME", tmp.path, 1)`, but on macOS `FileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)` resolves the user's home via `getpwuid()` and ignores `$HOME` — so we set `CFFIXED_USER_HOME` instead (CoreFoundation honors it). Still no source change required.
 
 **Acceptance criteria:**
 - `swift test` passes.
