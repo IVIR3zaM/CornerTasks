@@ -1,0 +1,30 @@
+{
+  "name": "@cornertasks/backend-aws",
+  "version": "0.2.0-dev",
+  "private": true,
+  "description": "CornerTasks BYO-AWS backend (SAM + TypeScript). Deploy this to your own AWS account; the maintainer does not host a shared backend.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint 'src/**/*.ts' 'tests/**/*.ts'",
+    "test": "jest",
+    "package": "npm run build && sam build",
+    "deploy:dev": "STAGE=${STAGE:-dev} npm run package && sam deploy --stack-name cornertasks-${STAGE:-dev} --parameter-overrides Stage=${STAGE:-dev} --capabilities CAPABILITY_IAM --resolve-s3 --no-confirm-changeset --no-fail-on-empty-changeset && npm run print-outputs",
+    "deploy:prod": "STAGE=prod npm run package && sam deploy --stack-name cornertasks-prod --parameter-overrides Stage=prod --capabilities CAPABILITY_IAM --resolve-s3 --no-confirm-changeset --no-fail-on-empty-changeset && STAGE=prod npm run print-outputs",
+    "deploy:web": "node scripts/deploy-web.mjs",
+    "print-outputs": "node scripts/print-outputs.mjs"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

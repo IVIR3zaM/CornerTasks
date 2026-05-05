@@ -35,6 +35,77 @@ final class PrefsTests: XCTestCase {
         XCTAssertTrue(Prefs.showInDock)
     }
 
+    func testCloudSyncEnabledDefaultsToFalseWhenUnset() {
+        // Standalone-by-default: a freshly-installed app must NOT have
+        // cloud sync turned on. This is the released-binary contract.
+        let key = Prefs.cloudSyncEnabledKey
+        let original = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        defer {
+            if let original {
+                UserDefaults.standard.set(original, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        XCTAssertNil(UserDefaults.standard.object(forKey: key))
+        XCTAssertFalse(Prefs.cloudSyncEnabled)
+    }
+
+    func testBackendURLDefaultsToNilWhenUnset() {
+        let key = Prefs.backendURLKey
+        let original = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        defer {
+            if let original {
+                UserDefaults.standard.set(original, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        XCTAssertNil(Prefs.backendURL)
+    }
+
+    func testCloudSyncEnabledRoundTrips() {
+        let key = Prefs.cloudSyncEnabledKey
+        let original = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let original {
+                UserDefaults.standard.set(original, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        Prefs.cloudSyncEnabled = true
+        XCTAssertTrue(Prefs.cloudSyncEnabled)
+        Prefs.cloudSyncEnabled = false
+        XCTAssertFalse(Prefs.cloudSyncEnabled)
+    }
+
+    func testBackendURLRoundTripsAndTrims() {
+        let key = Prefs.backendURLKey
+        let original = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let original {
+                UserDefaults.standard.set(original, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        Prefs.backendURL = "  https://example.execute-api.us-east-1.amazonaws.com  "
+        XCTAssertEqual(Prefs.backendURL, "https://example.execute-api.us-east-1.amazonaws.com")
+
+        Prefs.backendURL = "   "
+        XCTAssertNil(Prefs.backendURL)
+
+        Prefs.backendURL = nil
+        XCTAssertNil(Prefs.backendURL)
+    }
+
     func testShowInDockRoundTrips() {
         let key = Prefs.showInDockKey
         let original = UserDefaults.standard.object(forKey: key)

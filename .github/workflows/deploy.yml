@@ -1,0 +1,64 @@
+# Optional BYO-AWS deploy workflow for forks. Disabled by default
+# (workflow_dispatch only) so this repo never auto-deploys anything.
+# See backend/aws/README.md → "Optional CI deploys for your fork".
+name: Deploy backend (BYO-AWS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Stage name (e.g. prod, dev). Defaults to repo variable STAGE or "prod".'
+        required: false
+        default: ''
+
+permissions:
+  id-token: write   # required for GitHub OIDC → AWS IAM role
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      STAGE: ${{ inputs.stage != '' && inputs.stage || (vars.STAGE != '' && vars.STAGE || 'prod') }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+    steps:
+      - name: Guard — required inputs
+        run: |
+          if [ -z "${{ secrets.AWS_ROLE_TO_ASSUME }}" ]; then
+            echo "::error::Missing repo secret AWS_ROLE_TO_ASSUME (full ARN of the IAM role to assume via OIDC)."
+            exit 1
+          fi
+          if [ -z "${AWS_REGION}" ]; then
+            echo "::error::Missing repo variable AWS_REGION."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/aws/package.json
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install backend deps
+        working-directory: backend/aws
+        run: npm install
+
+      - name: Test
+        working-directory: backend/aws
+        run: npm test
+
+      - name: Deploy
+        working-directory: backend/aws
+        run: npm run deploy:${{ env.STAGE == 'prod' && 'prod' || 'dev' }}

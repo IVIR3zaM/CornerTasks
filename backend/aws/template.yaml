@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CornerTasks BYO-AWS backend (skeleton). Iteration 3 stands up the API,
+  S3+CloudFront for the web app, and a placeholder DynamoDB table. Real
+  handler logic and the finalized table schema land in iteration 5.
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedPattern: '^[a-z][a-z0-9-]*$'
+    Description: Deployment stage name (e.g. dev, prod). Used as a suffix on
+      stack-owned resource names so the same AWS account can host multiple
+      copies side by side.
+  CloudFrontPriceClass:
+    Type: String
+    Default: PriceClass_100
+    AllowedValues:
+      - PriceClass_100
+      - PriceClass_200
+      - PriceClass_All
+    Description: CloudFront edge footprint. Default PriceClass_100 (US/EU)
+      keeps BYO-AWS bills small. Change to PriceClass_All for global edges.
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 10
+    Tracing: Active
+
+Resources:
+
+  # --- Data ----------------------------------------------------------------
+
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      # Placeholder schema — finalized in iteration 5 once the sync protocol
+      # spec (iteration 4) lands.
+      TableName: !Sub cornertasks-${Stage}-events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # --- API + Lambdas -------------------------------------------------------
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: [GET, POST, OPTIONS]
+        AllowHeaders: [content-type, authorization]
+
+  PushFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub cornertasks-${Stage}-push
+      CodeUri: dist/
+      Handler: handlers/push.handler
+      Environment:
+        Variables:
+          EVENTS_TABLE: !Ref EventsTable
+          STAGE: !Ref Stage
+      Events:
+        Push:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /v1/sync/push
+
+  PullFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub cornertasks-${Stage}-pull
+      CodeUri: dist/
+      Handler: handlers/pull.handler
+      Environment:
+        Variables:
+          EVENTS_TABLE: !Ref EventsTable
+          STAGE: !Ref Stage
+      Events:
+        Pull:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: GET
+            Path: /v1/sync/pull
+
+  # --- Web hosting (private S3 + CloudFront with OAC) ---------------------
+
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub cornertasks-${Stage}-web-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  WebOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub cornertasks-${Stage}-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        PriceClass: !Ref CloudFrontPriceClass
+        DefaultRootObject: index.html
+        Origins:
+          - Id: webBucket
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !GetAtt WebOriginAccessControl.Id
+        DefaultCacheBehavior:
+          TargetOriginId: webBucket
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # CachingOptimized managed policy
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        # SPA fallback — let the React app handle its own routes.
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontReadViaOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${WebBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}
+
+Outputs:
+  ApiUrl:
+    Description: Base URL for the sync API. Paste into the app's Cloud Sync
+      settings.
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  WebUrl:
+    Description: CloudFront URL for the web app. Returns 404 until iteration 6
+      ships and `npm run deploy:web` uploads a build.
+    Value: !Sub https://${WebDistribution.DomainName}
+  WebBucketName:
+    Description: S3 bucket that backs the web app. Used by `npm run deploy:web`.
+    Value: !Ref WebBucket
+  WebDistributionId:
+    Description: CloudFront distribution ID. Used by `npm run deploy:web` for
+      cache invalidation.
+    Value: !Ref WebDistribution
+  EventsTableName:
+    Value: !Ref EventsTable

@@ -75,6 +75,20 @@ struct ContentView: View {
             Text("Changes apply immediately. The menu bar icon stays visible either way.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Divider()
+
+            // Placeholder UI — the real enable/disable flow, key management
+            // and backend URL field land in iteration 9. Today this just
+            // surfaces the standalone-by-default contract.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Cloud Sync — Off")
+                    .font(.subheadline.weight(.semibold))
+                Text("This app stores everything locally and makes no network calls. Cross-device sync is opt-in and arrives in a later v0.2.0 iteration.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
