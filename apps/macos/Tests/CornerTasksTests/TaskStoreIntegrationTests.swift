@@ -5,55 +5,32 @@ import SQLite3
 private let SQLITE_TRANSIENT_TEST = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 /// Integration tests that exercise the real `TaskStore` against a temp-directory
-/// SQLite file. The store hard-codes `~/Library/Application Support/CornerTasks`
-/// in v0.1.0; we redirect the user's home dir to a per-test temp dir so the same
-/// code path runs against an isolated location.
-///
-/// Note: `setenv("HOME", ...)` is not enough on macOS — Foundation resolves the
-/// home dir via `getpwuid()` and ignores `$HOME`. CoreFoundation does honor
-/// `CFFIXED_USER_HOME`, which redirects `FileManager.urls(for:.applicationSupportDirectory, in:.userDomainMask)`.
+/// SQLite file. Iteration 2 introduces `TaskStore.init(directory:)`, so tests no
+/// longer need the `HOME` / `CFFIXED_USER_HOME` override — they pass an explicit
+/// per-test directory. The integration assertions themselves are unchanged from
+/// iteration 1.
 final class TaskStoreIntegrationTests: XCTestCase {
     private var tmpDir: URL!
-    private var originalHome: String?
-    private var originalCFHome: String?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("CornerTasksTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-
-        originalHome = ProcessInfo.processInfo.environment["HOME"]
-        originalCFHome = ProcessInfo.processInfo.environment["CFFIXED_USER_HOME"]
-        setenv("HOME", tmpDir.path, 1)
-        setenv("CFFIXED_USER_HOME", tmpDir.path, 1)
     }
 
     override func tearDownWithError() throws {
-        if let originalHome {
-            setenv("HOME", originalHome, 1)
-        } else {
-            unsetenv("HOME")
-        }
-        if let originalCFHome {
-            setenv("CFFIXED_USER_HOME", originalCFHome, 1)
-        } else {
-            unsetenv("CFFIXED_USER_HOME")
-        }
         try? FileManager.default.removeItem(at: tmpDir)
         tmpDir = nil
         try super.tearDownWithError()
     }
 
-    private func dbFolder() -> URL {
-        tmpDir
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("CornerTasks", isDirectory: true)
+    private func makeStore() -> TaskStore {
+        TaskStore(directory: tmpDir)
     }
 
     private func dbPath() -> String {
-        dbFolder().appendingPathComponent("tasks.sqlite3").path
+        tmpDir.appendingPathComponent("tasks.sqlite3").path
     }
 
     // MARK: - CRUD
@@ -61,20 +38,20 @@ final class TaskStoreIntegrationTests: XCTestCase {
     @MainActor
     func testAddPersistsAcrossReopen() {
         do {
-            let store = TaskStore()
+            let store = makeStore()
             store.add("a")
             XCTAssertEqual(store.activeTasks.count, 1)
             XCTAssertEqual(store.activeTasks.first?.title, "a")
         }
 
-        let reopened = TaskStore()
+        let reopened = makeStore()
         XCTAssertEqual(reopened.activeTasks.count, 1)
         XCTAssertEqual(reopened.activeTasks.first?.title, "a")
     }
 
     @MainActor
     func testCompleteMovesTaskToArchive() {
-        let store = TaskStore()
+        let store = makeStore()
         store.add("done-me")
         let task = store.activeTasks.first!
         store.complete(task)
@@ -86,13 +63,13 @@ final class TaskStoreIntegrationTests: XCTestCase {
 
     @MainActor
     func testSetDueDateRoundTrips() {
-        let store = TaskStore()
+        let store = makeStore()
         store.add("with-due")
         let task = store.activeTasks.first!
         let due = Date(timeIntervalSince1970: 1_700_000_000)
         store.setDueDate(task, due: due)
 
-        let reopened = TaskStore()
+        let reopened = makeStore()
         let stored = reopened.activeTasks.first!
         XCTAssertNotNil(stored.dueDate)
         XCTAssertEqual(stored.dueDate!.timeIntervalSince1970, due.timeIntervalSince1970, accuracy: 0.001)
@@ -100,18 +77,18 @@ final class TaskStoreIntegrationTests: XCTestCase {
 
     @MainActor
     func testUpdateTitlePersists() {
-        let store = TaskStore()
+        let store = makeStore()
         store.add("old")
         let task = store.activeTasks.first!
         store.updateTitle(task, title: "new")
 
-        let reopened = TaskStore()
+        let reopened = makeStore()
         XCTAssertEqual(reopened.activeTasks.first?.title, "new")
     }
 
     @MainActor
     func testDeleteArchivedRemovesRow() {
-        let store = TaskStore()
+        let store = makeStore()
         store.add("kill-me")
         let task = store.activeTasks.first!
         store.complete(task)
@@ -119,14 +96,14 @@ final class TaskStoreIntegrationTests: XCTestCase {
         store.deleteArchived(archived)
         XCTAssertEqual(store.archivedTasks.count, 0)
 
-        let reopened = TaskStore()
+        let reopened = makeStore()
         XCTAssertEqual(reopened.activeTasks.count, 0)
         XCTAssertEqual(reopened.archivedTasks.count, 0)
     }
 
     @MainActor
     func testMoveActiveReordersPersistently() {
-        let store = TaskStore()
+        let store = makeStore()
         store.add("a")
         store.add("b")
         store.add("c")
@@ -136,7 +113,7 @@ final class TaskStoreIntegrationTests: XCTestCase {
         store.moveActive(from: IndexSet(integer: 2), to: 0)
         XCTAssertEqual(store.activeTasks.map(\.title), ["c", "a", "b"])
 
-        let reopened = TaskStore()
+        let reopened = makeStore()
         XCTAssertEqual(reopened.activeTasks.map(\.title), ["c", "a", "b"])
     }
 
@@ -144,9 +121,7 @@ final class TaskStoreIntegrationTests: XCTestCase {
 
     @MainActor
     func testJSONMigrationImportsRowsAndRenamesFile() throws {
-        let folder = dbFolder()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let jsonURL = folder.appendingPathComponent("tasks.json")
+        let jsonURL = tmpDir.appendingPathComponent("tasks.json")
 
         let json = """
         [
@@ -168,22 +143,19 @@ final class TaskStoreIntegrationTests: XCTestCase {
         """
         try json.data(using: .utf8)!.write(to: jsonURL)
 
-        let store = TaskStore()
+        let store = makeStore()
         XCTAssertEqual(store.activeTasks.count, 1)
         XCTAssertEqual(store.activeTasks.first?.title, "legacy-1")
         XCTAssertEqual(store.archivedTasks.count, 1)
         XCTAssertEqual(store.archivedTasks.first?.title, "legacy-2")
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: jsonURL.path))
-        let migrated = folder.appendingPathComponent("tasks.json.migrated")
+        let migrated = tmpDir.appendingPathComponent("tasks.json.migrated")
         XCTAssertTrue(FileManager.default.fileExists(atPath: migrated.path))
     }
 
     @MainActor
     func testSchemaUpgradeAddsDueDateColumn() throws {
-        let folder = dbFolder()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-
         // Pre-create a tasks table that lacks `due_date`.
         var db: OpaquePointer?
         XCTAssertEqual(sqlite3_open(dbPath(), &db), SQLITE_OK)
@@ -201,7 +173,7 @@ final class TaskStoreIntegrationTests: XCTestCase {
         sqlite3_close(db)
 
         // Opening the real store should add the column.
-        _ = TaskStore()
+        _ = makeStore()
 
         var db2: OpaquePointer?
         XCTAssertEqual(sqlite3_open(dbPath(), &db2), SQLITE_OK)

@@ -11,11 +11,11 @@ Package.resolved
 .vscode/
 .cluade/
 
-# Build artifacts
-CornerTasks.app/
-CornerTasks.iconset/
-CornerTasks.icns
-dmg/
+# Build artifacts (apps/macos/build.sh runs from apps/macos/)
+apps/macos/CornerTasks.app/
+apps/macos/CornerTasks.iconset/
+apps/macos/CornerTasks.icns
+apps/macos/dmg/
 
 # Release output (DMG is generated, don't commit)
-release/*.dmg
+apps/macos/release/*.dmg

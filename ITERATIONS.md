@@ -16,7 +16,7 @@ Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.
 ## Status
 
 - [x] **1.** Integration tests for the current v0.1.0 macOS app (no source changes)
-- [ ] **2.** Repo restructure + split the Swift file + add unit tests (integration tests still pass)
+- [x] **2.** Repo restructure + split the Swift file + add unit tests (integration tests still pass)
 - [ ] **3.** AWS backend skeleton + S3 static-site bucket + "bring your own AWS" docs + standalone-mode default in app config
 - [ ] **4.** Shared sync protocol spec (`docs/sync-protocol.md`)
 - [ ] **5.** Backend impl: DynamoDB schema, push/pull handlers

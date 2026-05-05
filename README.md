@@ -76,7 +76,7 @@ Full IAM/permissions list and the optional GitHub Actions OIDC deploy template l
 └── ITERATIONS.md — ordered v0.2.0 work plan
 ```
 
-In v0.1.0 the macOS app lives at the repo root. Iteration 1 of v0.2.0 moves it under `apps/macos/`.
+In v0.1.0 the macOS app lived at the repo root. Iteration 2 of v0.2.0 moved it under `apps/macos/`.
 
 ## Requirements
 
@@ -101,16 +101,18 @@ and launch it. You only need to do this once per install.
 ## Run from source
 
 ```bash
-# macOS app (v0.1.0 — repo root; v0.2.0+ — apps/macos/)
+# macOS app — sources live under apps/macos/ as of v0.2.0.
+cd apps/macos
 swift run -c release
 
 # Or open in Xcode
-open Package.swift
+open apps/macos/Package.swift
 ```
 
 ## Build a distributable .app + .dmg
 
 ```bash
+cd apps/macos
 ./build.sh                           # host arch only — fast local dev
 UNIVERSAL=1 ./build.sh               # universal arm64 + x86_64 (needs full Xcode)
 VERSION=0.1.0 UNIVERSAL=1 ./build.sh # also stamp Info.plist with a version
