@@ -1,0 +1,403 @@
+# v0.2.0 Iterations
+
+Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.2.0 (multi-platform with optional, end-to-end-encrypted, decentralized AWS sync).
+
+## How to use this file
+
+- One PR per iteration, in order. Don't bundle two.
+- Re-read [`AGENTS.md`](AGENTS.md) before starting; it defines repository conventions.
+- Each iteration lists **Goal**, **Deliverables**, **Acceptance criteria**, **Out of scope**. If scope must grow, edit this file first and flag it in the PR.
+- Tick the iteration's checkbox below when its PR is merged. Update affected docs (README, AGENTS.md) in the same PR.
+- Tests:
+  - Iteration 1 adds **integration tests** for current behavior — no source code changes.
+  - Iteration 2 restructures source files. Iteration 1's integration tests must still pass unchanged. Iteration 2 also adds **unit tests** for the new modules.
+  - Every later iteration that adds non-UI logic must add unit tests for that logic.
+
+## Status
+
+- [ ] **1.** Integration tests for the current v0.1.0 macOS app (no source changes)
+- [ ] **2.** Repo restructure + split the Swift file + add unit tests (integration tests still pass)
+- [ ] **3.** AWS backend skeleton + S3 static-site bucket + "bring your own AWS" docs + standalone-mode default in app config
+- [ ] **4.** Shared sync protocol spec (`docs/sync-protocol.md`)
+- [ ] **5.** Backend impl: DynamoDB schema, push/pull handlers
+- [ ] **6.** Web app skeleton (Vite + React, mobile-first), local-only, S3 deploy script
+- [ ] **7.** Crypto on macOS: mnemonic → Ed25519 → `did:key` + AES-256-GCM data encryption
+- [ ] **8.** Crypto on web: same scheme, cross-implementation test vectors
+- [ ] **9.** Account UI on macOS (standalone-by-default; enable/disable cloud sync; show DID; merge warning)
+- [ ] **10.** Account UI on web (same flows + camera-based QR scan)
+- [ ] **11.** Sync engine on macOS (push every 10 min, pull every 1 min, archive cutoff, only when cloud sync enabled)
+- [ ] **12.** Sync engine on web
+- [ ] **13.** End-to-end verification across one macOS + one web device
+- [ ] **14.** Release v0.2.0
+
+---
+
+## Iteration 1 — Integration tests for v0.1.0 (no source changes)
+
+**Goal:** Pin down current behavior with end-to-end tests **before** restructuring. The product source must not change in this iteration.
+
+**Deliverables:**
+- Add a `Tests/CornerTasksTests/` target to `Package.swift`. Adding the target counts as Swift Package Manager configuration, not a product code change.
+- Integration tests that exercise the **real** `TaskStore` against a temp-directory SQLite file (each test gets its own temp dir, deleted on teardown):
+  - Create store → `add("a")` → `activeTasks.count == 1` and round-trips via re-opening a new store on the same path.
+  - `complete` moves a task into `archivedTasks`.
+  - `setDueDate` round-trips a date.
+  - `updateTitle` persists.
+  - `deleteArchived` removes the row.
+  - `moveActive` reorders persistently.
+  - JSON migration: write a synthetic `tasks.json` into the temp dir, open the store, assert rows imported and the JSON file renamed to `tasks.json.migrated`.
+  - Schema upgrade: pre-create a tasks table without `due_date`, open the store, assert the column is added (proves `columnExists` + `ALTER TABLE` path).
+- These tests need to construct `TaskStore` against an arbitrary directory. v0.1.0's `TaskStore.init` hardcodes `~/Library/Application Support`. **Workaround for this iteration:** override `HOME` in the test process before constructing the store (`setenv("HOME", tmp.path, 1)`). This needs no source change.
+
+**Acceptance criteria:**
+- `swift test` passes.
+- `swift build -c release` and `./build.sh` still produce an identical app bundle (same `CornerTasksApp.swift`).
+- No file under `Sources/CornerTasks/` is modified.
+
+**Out of scope:** restructuring, unit tests, any new feature.
+
+---
+
+## Iteration 2 — Restructure macOS source + add unit tests
+
+**Goal:** Move the macOS app under `apps/macos/`, split `CornerTasksApp.swift` into small files by responsibility, and make `TaskStore` injectable enough for unit tests, without changing observable behavior.
+
+**Deliverables:**
+- Move the macOS app under `apps/macos/` (`Package.swift`, `AppBundle/`, `Sources/`, `build.sh`, `icon.png`, `release/`). Update `.github/workflows/release.yml` to set `working-directory: apps/macos` (or equivalent). Update `.gitignore` paths. Update README run/build commands.
+- Split `apps/macos/Sources/CornerTasks/` into:
+  - `App/` — `CornerTasksApp.swift` (the `@main`), `AppDelegate.swift`
+  - `Storage/` — `TaskStore.swift`, `Schema.swift`
+  - `Models/` — `TaskItem.swift`, `DueStatus.swift`, `Prefs.swift`
+  - `UI/` — `ContentView.swift`, `ActiveTaskRow.swift`, `ArchivedTaskRow.swift`, `DueDateButton.swift`, `DueBadge.swift`
+- Add a `TaskStore.init(directory: URL)` overload so tests no longer need the `HOME` override. Keep the default-init for the app.
+- Update iteration 1's integration tests to use the new init. **The integration assertions themselves must remain identical** — only the constructor call changes.
+- Add unit tests for purely-logical types:
+  - `DueStatus.of(...)` covers all five branches against a fixed `now`.
+  - `Prefs` defaults match documentation (`showInDock` defaults to `true`; cloud-sync prefs added in iteration 3 will have their defaults asserted there too).
+
+**Acceptance criteria:**
+- `swift test` passes.
+- `swift build -c release` and `./build.sh` succeed from `apps/macos/`.
+- App behavior is unchanged from v0.1.0.
+
+**Out of scope:** sync, crypto, any new UI.
+
+---
+
+## Iteration 3 — Backend skeleton + S3 hosting bucket + BYO-AWS docs + standalone default
+
+**Goal:** Stand up `backend/aws/` with empty handlers, define the S3 static-site bucket that will host the web app, and make it crystal clear that **the released app does not phone home**. Users who want sync deploy their own copy.
+
+**Decision:** SAM (YAML) over CDK. Reason: smaller surface, no synth step, direct mapping from template to deployed resources. Document in `backend/aws/README.md`.
+
+**Deliverables:**
+
+### Infra (`backend/aws/template.yaml`)
+- One DynamoDB table (placeholder; finalized in iteration 5).
+- API Gateway HTTP API with `POST /v1/sync/push` and `GET /v1/sync/pull` routes.
+- Two TypeScript Lambda functions returning `{ ok: true, todo: "iteration 5" }`.
+- One S3 bucket configured for the web app — **private** bucket fronted by CloudFront with Origin Access Control (we do not enable public S3 website hosting; CloudFront is the only path in). HTTPS-only. SPA fallback: `403/404 → /index.html`.
+- Stack outputs: `ApiUrl` and `WebUrl`. The deploy script prints both at the end.
+
+### Tooling (`backend/aws/`)
+- `package.json`, `tsconfig.json`, ESLint config.
+- Scripts:
+  - `npm run build`
+  - `npm run deploy:dev` / `npm run deploy:prod` (`sam deploy` with stage param)
+  - `npm run deploy:web` — `aws s3 sync` of `apps/web/dist/` into the bucket from the deployed stack, then `aws cloudfront create-invalidation`. Reads bucket name + distribution ID from `aws cloudformation describe-stacks`.
+- Unit tests for handler skeletons.
+
+### Documentation: "Bring your own AWS"
+Add `backend/aws/README.md` with:
+- **Why:** the maintainer does not host a shared backend. Each user runs their own. Cloud sync is fully optional.
+- **Required env vars (locally for `sam deploy`):**
+  - `AWS_REGION`
+  - one of: `AWS_PROFILE`, OR `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ optional `AWS_SESSION_TOKEN`)
+  - `STAGE` (e.g. `prod`, `dev`)
+- **Required IAM permissions** for the deploying principal: CloudFormation, Lambda, API Gateway, DynamoDB, S3, CloudFront, IAM (for Lambda execution role). List the minimal action set in the README.
+- **Step-by-step:**
+  1. Fork or clone this repo.
+  2. `aws configure` (or set env vars).
+  3. `cd backend/aws && npm install && npm run deploy:prod`.
+  4. Note the `ApiUrl` and `WebUrl` printed at the end.
+  5. In the macOS app or web app: open Settings → Cloud Sync → paste `ApiUrl` and Enable. Generate or import your DID key (iterations 9/10).
+  6. To deploy the web app: `cd apps/web && npm run build && cd ../../backend/aws && npm run deploy:web`.
+
+### GitHub Actions secrets — what is and isn't needed
+Document this in `backend/aws/README.md`:
+- The repo's existing `release.yml` (DMG builder) needs **no AWS secrets**. It does not deploy anything.
+- For users who want CI deploys of their own stack from their fork, add a separate `.github/workflows/deploy.yml` template (committed but disabled by default — `workflow_dispatch` only) that uses **GitHub OIDC → AWS IAM role** (no long-lived keys). Required GitHub Action secrets/vars in their fork:
+  - `AWS_ROLE_TO_ASSUME` — full ARN of an IAM role they create with a trust policy for `token.actions.githubusercontent.com`.
+  - `AWS_REGION`.
+  - Optional `STAGE`.
+- Explicitly state: this repo's `main` branch GitHub Actions does **not** carry the maintainer's AWS credentials. The maintainer's personal dev stack (if any) is deployed manually from a laptop, never from this repo's CI. The released DMG does not embed an `ApiUrl`.
+
+### App-side default (macOS only — web is iteration 6)
+- Add `Prefs.cloudSyncEnabled` (default `false`) and `Prefs.backendURL` (default `nil`).
+- Surface in settings (placeholder UI now, real flows in iteration 9): a section labelled "Cloud Sync — Off". No background task is started while disabled. The released app cannot connect anywhere by default.
+- Unit-test the default values.
+
+### README.md (root) — privacy section
+Add a "How private is cloud sync?" section explaining:
+- **Default state: cloud sync is OFF.** The released app makes zero network calls. It is a standalone tool unless you change that.
+- **When you enable it:** data is encrypted on-device with a key derived from a private key only you control. The server stores ciphertext + an opaque task ID + a timestamp. **The maintainer of this project cannot read your tasks. Neither can anyone running the backend code, including yourself.**
+- **Evidence — the wire payload:** the only cleartext fields are `accountDid`, `deviceId`, `eventId`, `taskId`, `updatedAt`, `op`. Every meaningful field (title, dates, completion state, order) lives inside an AES-256-GCM ciphertext blob. See `docs/sync-protocol.md` (iteration 4) for the exact format and `apps/macos/Sources/CornerTasks/Crypto/` (iteration 7) for the implementation. Both are auditable.
+- **Evidence — code paths:** the encryption key is derived in `Crypto/DataKey.swift` from the BIP-39 seed and never leaves the device. There is no key-escrow code anywhere in this repo; the AWS account owner has no decryption material.
+- **Decentralized identity:** your account ID is a `did:key` derived from an Ed25519 public key whose private half lives only on your devices. Two devices with the same mnemonic share the same DID and therefore the same account.
+- **The backend lives in your AWS account, not anyone else's.** Link to the BYO-AWS guide in `backend/aws/README.md`.
+
+**Acceptance criteria:**
+- `npm test` passes.
+- `npm run deploy:dev` against a dev AWS account succeeds; both API routes respond `200`; the `WebUrl` returns a 404 (empty bucket — expected until iteration 6).
+- README's privacy section + `backend/aws/README.md` BYO-AWS steps are reviewable and complete.
+
+**Out of scope:** real handler logic (iteration 5), web app code (iteration 6), real crypto (iteration 7).
+
+---
+
+## Iteration 4 — Sync protocol spec
+
+**Goal:** Write the wire format **before** anyone implements clients or real handlers.
+
+**Deliverables:** `docs/sync-protocol.md` covering:
+
+- **Account identity = `did:key`** derived from an Ed25519 public key (see iteration 7). The DID is the only on-server identifier for an account. Example: `did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSdiCnPMkF4eRpwFNGGq`.
+- **Event:** `{ accountDid, deviceId, eventId, taskId, updatedAt, op, ciphertext, nonce }`.
+  - Cleartext: `accountDid`, `deviceId` (random per-device UUID), `eventId` (random UUID), `taskId` (random UUID — leaks no info), `updatedAt` (ISO 8601), `op ∈ {"upsert","delete"}`.
+  - Encrypted (inside `ciphertext`): everything else — title, createdAt, completedAt, dueDate, order.
+  - Cipher: AES-256-GCM. 12-byte random `nonce`. Auth tag included in `ciphertext`. Key derived per iteration 7.
+- **Endpoints:**
+  - `POST /v1/sync/push` body `{ accountDid, events: Event[] }` → `{ accepted: string[], rejected: { eventId, reason }[] }`.
+  - `GET /v1/sync/pull?accountDid=...&since=<ISO8601>` → `{ events: Event[], serverTime }`.
+- **Conflict resolution:** server keeps the latest event per `taskId` keyed by max `updatedAt`. Tie-break: lexicographic `eventId`.
+- **Archive cutoff:** clients MUST NOT push events for archived tasks where `completedAt < now - 60 days`. Server filters such events out on pull (defense-in-depth).
+- **Auth:** v0.2.0 ships unauthenticated beyond `accountDid`. Document this explicitly:
+  - "Anyone who knows your `did:key` can read your encrypted blobs. They cannot decrypt them. They CAN write garbage events under your DID, which would pollute your account. Treat your DID as semi-secret."
+  - v0.2.x will add request signing: every push/pull is signed with the Ed25519 private key; server verifies the signature against the DID. Spec stub goes in this doc.
+- **Worked examples:** include curl-able JSON for an upsert and a delete.
+
+**Acceptance criteria:** doc exists, is complete, is referenced from `AGENTS.md` and the root `README.md`'s privacy section.
+
+**Out of scope:** code.
+
+---
+
+## Iteration 5 — Backend impl
+
+**Goal:** Implement push/pull per iteration 4.
+
+**Deliverables:**
+- DynamoDB single-table:
+  - `PK = ACCOUNT#<accountDid>`, `SK = TASK#<taskId>`.
+  - Attributes: `updatedAt`, `eventId`, `op`, `ciphertext`, `nonce`, optional `archivedCompletedAt`.
+  - GSI on `(PK, updatedAt)` for `pull?since=...`.
+- `push` handler: conditional write; reject events with `updatedAt <= stored.updatedAt` as `"stale"`. Reject malformed events as `"invalid"` (server cannot decrypt; only checks shape and field types). Validate with zod.
+- `pull` handler: query GSI ascending; page if needed; filter `archivedCompletedAt` older than 60 days.
+- Tests: dedup, staleness, since-filter, archive cutoff. Integration test against `dynamodb-local` in CI.
+
+**Acceptance criteria:** `npm test` passes; deploy to dev and run a curl round-trip from `docs/sync-protocol.md`.
+
+**Out of scope:** clients, signed requests.
+
+---
+
+## Iteration 6 — Web app skeleton (mobile-first, local-only)
+
+**Goal:** `apps/web/` with v0.1.0 macOS feature parity, fully offline.
+
+**Decision:** Vite + React + TypeScript. Document in `apps/web/README.md`.
+
+**Deliverables:**
+- Vite + React + TypeScript scaffold.
+- IndexedDB-backed `TaskStore` mirroring the Swift surface (`add`, `complete`, `updateTitle`, `setDueDate`, `deleteArchived`, `moveActive`).
+- `DueStatus` ported verbatim (same five states, same colors).
+- Mobile-first UI: full-screen on phones, capped-width column on desktop. Tabs for Tasks / Archive. Tap-to-complete (swipe optional). Drag-to-reorder via `@dnd-kit/core` (small, well-scoped).
+- Cloud-sync defaults: **off**, no `backendURL` set. Same standalone story as macOS.
+- Unit tests: `TaskStore` (`fake-indexeddb`) and `DueStatus`.
+- `npm run build` produces `apps/web/dist/`.
+- Deployment path: from `apps/web/dist/`, the user runs `cd ../../backend/aws && npm run deploy:web` (script defined in iteration 3) which uploads to the S3 bucket and invalidates CloudFront.
+- Confirm in `apps/web/README.md`: the app is served only over HTTPS via CloudFront. Camera + clipboard APIs depend on this.
+
+**Acceptance criteria:**
+- `npm test` passes.
+- Manual smoke on Chrome desktop + iOS Safari mobile viewport: add/edit/complete/delete persists across reload.
+- `npm run deploy:web` against the dev stack from iteration 3 serves the app on `WebUrl`.
+
+**Out of scope:** sync, crypto, account UI, camera scan.
+
+---
+
+## Iteration 7 — Crypto on macOS (Ed25519 + did:key + AES-GCM)
+
+**Goal:** Identity is a self-sovereign DID; data encryption is a symmetric key derived from the same secret. Mnemonic remains the human-readable backup. The whole scheme is platform-portable and auditable.
+
+**Scheme:**
+- 12-word BIP-39 mnemonic (English wordlist).
+- BIP-39 seed (64 bytes; passphrase `""`).
+- **Ed25519 keypair** seeded from `HKDF-SHA256(seed, info="cornertasks-identity-ed25519", length=32)`. Why Ed25519: small, fast, supported by `did:key` natively (multicodec `0xed01`), available via `CryptoKit.Curve25519.Signing` on macOS and `@noble/ed25519` on web — no native deps either side.
+- **`accountDid`** = `did:key:z` + base58btc-multibase(multicodec(0xed01) + Ed25519 public key (32 bytes)).
+- **Data-encryption key** = `HKDF-SHA256(seed, info="cornertasks-encryption-aesgcm", length=32)`. Used as the AES-256-GCM key for all encrypted task fields.
+- **Why two derivations:** identity (signing) and confidentiality (encryption) get independent keys with domain-separated `info` strings. If we later add request signing or per-device subkeys, this lets them grow without retrofitting.
+- **Decryption with someone else's DID is impossible** — decryption requires the seed, which never leaves a device. The DID alone is public.
+- The mnemonic is the only thing the user needs to back up. Everything else is deterministically derived.
+
+**Deliverables (`apps/macos/Sources/CornerTasks/Crypto/`):**
+- `Mnemonic.swift` — generate, validate, BIP-39 seed.
+- `Identity.swift` — Ed25519 keypair from seed; `accountDid` string; `sign`/`verify` (forward-looking, used by v0.2.x request signing).
+- `DataKey.swift` — HKDF → 32-byte symmetric key.
+- `SymmetricBox.swift` — AES-256-GCM encrypt/decrypt via `CryptoKit.AES.GCM`. Returns `(ciphertext, nonce)`.
+- `MnemonicStore.swift` — Keychain (service `com.cornertasks.mnemonic`).
+- Tests:
+  - BIP-39 known-answer vector.
+  - Mnemonic → DID is stable across runs.
+  - Round-trip encrypt/decrypt; wrong key throws.
+  - did:key encoding matches the W3C DID spec test vector for Ed25519.
+  - Cross-impl fixtures (a known mnemonic → expected DID, expected HKDF key hex, expected ciphertext for fixed plaintext+nonce) emitted to `docs/crypto-vectors.json` for iteration 8 to consume.
+
+**Acceptance criteria:** `swift test` passes. No UI changes. `docs/crypto-vectors.json` exists.
+
+---
+
+## Iteration 8 — Crypto on web (same scheme)
+
+**Goal:** Byte-for-byte compatible with macOS.
+
+**Deliverables (`apps/web/src/crypto/`):**
+- `@scure/bip39` for mnemonic + seed.
+- `@noble/ed25519` for Ed25519 (small, audited, no native deps).
+- WebCrypto for HKDF + AES-GCM.
+- did:key encoder using `@scure/base` for base58btc.
+- Mnemonic stored in IndexedDB under one keyed entry, with `// SENSITIVE` comments and a clearly-marked accessor.
+- TS unit tests:
+  - Round-trip encrypt/decrypt.
+  - Read `docs/crypto-vectors.json` from iteration 7 and assert that mnemonic → DID, → HKDF key, and → ciphertext match exactly. **This file is the contract that prevents drift.**
+
+**Acceptance criteria:** `npm test` passes; vectors match.
+
+---
+
+## Iteration 9 — Account UI on macOS (standalone-first)
+
+**Goal:** Cloud sync stays **off** by default. The Account/Cloud-sync section makes the trade-off explicit. The DID is always visible once a key exists.
+
+**Deliverables:**
+- Settings → "Cloud Sync" panel. While disabled it shows:
+  - **"Cloud sync is off. Your tasks stay on this Mac."**
+  - **Enable cloud sync** button → opens the chooser modal.
+  - Explanatory copy: *"You can stay offline forever. If you decide to enable later, you can either generate a new key (a brand new account) or import an existing key from another device (this Mac will join that account and **merge** its tasks with the existing ones)."*
+- Chooser modal — only shown when the user opts in (no forced first-run prompt):
+  - **Generate new key** — creates mnemonic + DID. Shows the 12 words and the DID. Requires checkbox "I have backed up these words" before continuing.
+  - **Import from mnemonic** — text field, 12 words, BIP-39 checksum-validated.
+  - (QR scanning is web-only in iteration 10; macOS shows the QR for the web side to scan.)
+  - **Big red merge warning** in the import branch: *"If this key already controls another account on the cloud, the tasks on this Mac will be merged with that account's tasks. This cannot be undone."* Same wording as web iteration 10.
+- Backend URL field: paste the `ApiUrl` from your own deployment (iteration 3). Required to actually enable. Validated via `GET /v1/sync/pull?accountDid=…&since=2099-01-01T00:00:00Z` ping that should return `{ events: [], serverTime }`.
+- Account section displays (whenever a key exists, even with cloud sync off):
+  - The `did:key` (selectable, copyable, monospaced).
+  - "Show mnemonic" — reveal-on-click, with caution.
+  - "Show QR code" — renders QR of the mnemonic via `CIFilter.qrCodeGenerator()` (no dependency).
+  - "Disable cloud sync" — flips the prefs; in-flight sync timers stop. Local data untouched.
+  - "Forget this device" — wipes mnemonic from Keychain after double-confirm. Local SQLite stays. Cloud sync flips off.
+- v0.1.0 users: existing tasks remain on disk untouched. They simply see "Cloud sync is off" in settings. No forced migration prompt.
+
+**Acceptance criteria:** Manual: chooser flows produce a stable DID; QR generated here scans cleanly with iPhone camera; ping validates the `ApiUrl`; disabling cloud sync stops timers (verified once iteration 11 lands).
+
+**Out of scope:** running the actual sync engine.
+
+---
+
+## Iteration 10 — Account UI on web (with QR scan)
+
+**Goal:** Same flows as iteration 9 plus camera-based QR scan that lets a user join an account from a macOS device.
+
+**Deliverables:**
+- Same default: cloud sync **off** until the user enables it.
+- Enable flow with three options:
+  - **Generate new key** (new account; show mnemonic + DID + downloadable QR).
+  - **Paste mnemonic.**
+  - **Scan QR** via `getUserMedia` + `jsqr`.
+- Same big red merge warning, same wording as macOS.
+- Backend URL field with the same ping validation.
+- DID always visible in Account view once a key exists.
+- Tests for parse/validate paths.
+- Note: camera + clipboard APIs require HTTPS, which is satisfied by the CloudFront/S3 setup from iteration 3 (the `http://` S3 website endpoint won't work for camera).
+
+**Acceptance criteria:** Manual: scan the QR rendered by macOS iteration 9 → web unlocks the same `did:key`.
+
+---
+
+## Iteration 11 — Sync engine on macOS
+
+**Goal:** Make sync actually work. Engine is started only while `Prefs.cloudSyncEnabled == true` and `Prefs.backendURL != nil`.
+
+**Deliverables:**
+- Schema change: `tasks` gains `updated_at REAL NOT NULL` and `deleted_at REAL` columns. Migrate existing rows: `updated_at = max(created_at, completed_at, due_date)` once.
+- New `sync_queue` table: `(event_id TEXT PRIMARY KEY, task_id TEXT, op TEXT, payload BLOB, created_at REAL, sent_at REAL NULL)`.
+- `Sync/SyncEngine.swift`:
+  - On every `TaskStore` mutation, insert a queue row with the encrypted payload built from the task's current state.
+  - `flushPushes()` every 10 minutes via `Timer.scheduledTimer` and on app launch. Sends rows where `sent_at IS NULL`. Marks accepted IDs and `"stale"`-rejected IDs as sent.
+  - `pullSince()` every 1 minute. Decrypts and applies events with `updatedAt > local`. Advances `lastSyncedAt`.
+- Archive cutoff: when building a push for a task with `completedAt < now - 60d`, skip it and mark the queue row sent.
+- `SyncTransport` protocol → `URLSessionTransport` (real) and `FakeTransport` (tests).
+- Tests:
+  - Round-trip via fake transport.
+  - Stale-write rejection handled.
+  - Archive cutoff respected on push.
+  - Pull merges respect last-writer-wins.
+  - Engine does nothing while cloud sync is disabled.
+
+**Acceptance criteria:** `swift test` passes; manual: two macOS instances on the same mnemonic + same `ApiUrl` (different `~/Library/...` paths via the iteration-2 directory init) converge within ~1 minute.
+
+---
+
+## Iteration 12 — Sync engine on web
+
+**Goal:** Same engine, same contract.
+
+**Deliverables:**
+- IndexedDB schema mirrors macOS (`updatedAt`, `deletedAt`, `syncQueue` object store).
+- `apps/web/src/sync/SyncEngine.ts` with identical timer cadence and conflict rules.
+- Tab visibility: when hidden, pause timers; on `visibilitychange → visible`, immediately call `pullSince()` and `flushPushes()`.
+- Tests with a fake transport.
+
+---
+
+## Iteration 13 — End-to-end verification
+
+**Goal:** Confirm one mnemonic works across one macOS device and one web device on a clean BYO-AWS deployment.
+
+**Deliverables:** `docs/e2e-test.md`:
+1. On macOS: enable cloud sync, generate mnemonic, paste your `ApiUrl`. Note the DID.
+2. On web (served from your CloudFront): enable cloud sync, scan the QR. DID must match.
+3. Add a task on macOS → appears on web within ~1 minute.
+4. Edit on web → appears on macOS within ~1 minute.
+5. Archive a task with `completedAt = 70 days ago` → does NOT propagate.
+6. Delete on one → tombstones the other.
+7. Disable cloud sync on web → further changes do not propagate. Re-enable → they catch up.
+8. Standalone-mode regression: a fresh macOS install with cloud sync off makes zero outbound network calls (verify with Little Snitch or `tcpdump`).
+
+Each bug found gets a regression test in iterations 11 or 12 as appropriate.
+
+**Acceptance criteria:** the script passes end-to-end.
+
+---
+
+## Iteration 14 — Release v0.2.0
+
+**Goal:** Cut the release.
+
+**Deliverables:**
+- Bump `apps/macos/AppBundle/Info.plist` `CFBundleVersion` and `CFBundleShortVersionString` to `0.2.0`.
+- Bump `apps/web/package.json` version.
+- Update README "Version" line and changelog table.
+- Confirm released DMG starts with cloud sync **off** and no `backendURL` baked in.
+- Tag `v0.2.0`. Verify the GitHub Actions release workflow attaches the universal DMG. (No AWS secrets are involved in this workflow; it must remain that way.)
+
+**Out of scope:** notarization, App Store submission, public hosting of the web app on the maintainer's behalf.
+
+---
+
+## Open questions (resolve before the iteration that needs each)
+
+- **Where to derive Ed25519 from BIP-39 seed:** simplest is `HKDF-SHA256(seed, info="cornertasks-identity-ed25519", 32)` → seed for Ed25519. Alternative: SLIP-0010 / BIP32-Ed25519. Going with HKDF for simplicity unless a contributor argues for SLIP-0010 with a concrete reason.
+- **CloudFront price class** in iteration 3: default to `PriceClass_100` (US/EU) to keep BYO-AWS bills small; document that users can change it in `template.yaml`.
+- **Future request signing** (v0.2.x, deferred): every push/pull is Ed25519-signed; server verifies via the multibase-encoded DID. Spec stub goes into `docs/sync-protocol.md` in iteration 4 so clients and server know what's coming.
