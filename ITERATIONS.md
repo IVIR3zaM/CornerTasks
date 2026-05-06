@@ -22,7 +22,7 @@ Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.
 - [x] **5.** Backend impl: DynamoDB schema, push/pull handlers
 - [x] **6.** Web app skeleton (Vite + React, mobile-first), local-only, S3 deploy script
 - [x] **7.** Crypto on macOS: mnemonic → Ed25519 → `did:key` + AES-256-GCM data encryption
-- [ ] **8.** Crypto on web: same scheme, cross-implementation test vectors
+- [x] **8.** Crypto on web: same scheme, cross-implementation test vectors
 - [ ] **9.** Account UI on macOS (standalone-by-default; enable/disable cloud sync; show DID; merge warning)
 - [ ] **10.** Account UI on web (same flows + camera-based QR scan)
 - [ ] **11.** Sync engine on macOS (push every 10 min, pull every 1 min, archive cutoff, only when cloud sync enabled)
