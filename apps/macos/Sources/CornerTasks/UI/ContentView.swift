@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var store: TaskStore
+    @StateObject var account = AccountManager()
 
     @State private var newTaskTitle = ""
     @State private var selectedTab: Tab = .active
@@ -68,34 +69,26 @@ struct ContentView: View {
     }
 
     private var settingsView: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Toggle("Show icon in Dock", isOn: $store.showInDock)
-                .toggleStyle(.switch)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Show icon in Dock", isOn: $store.showInDock)
+                        .toggleStyle(.switch)
 
-            Text("Changes apply immediately. The menu bar icon stays visible either way.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                    Text("Changes apply immediately. The menu bar icon stays visible either way.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                )
 
-            Divider()
-
-            // Placeholder UI — the real enable/disable flow, key management
-            // and backend URL field land in iteration 9. Today this just
-            // surfaces the standalone-by-default contract.
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Cloud Sync — Off")
-                    .font(.subheadline.weight(.semibold))
-                Text("This app stores everything locally and makes no network calls. Cross-device sync is opt-in and arrives in a later v0.2.0 iteration.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                CloudSyncSection(account: account)
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
-        )
     }
 
     private var addBox: some View {
