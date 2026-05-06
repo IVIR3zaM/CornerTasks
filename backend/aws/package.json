@@ -4,14 +4,26 @@
   "private": true,
   "description": "CornerTasks BYO-AWS backend (SAM + TypeScript). Deploy this to your own AWS account; the maintainer does not host a shared backend.",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint 'src/**/*.ts' 'tests/**/*.ts'",
     "test": "jest",
     "package": "npm run build && sam build",
     "deploy:dev": "STAGE=${STAGE:-dev} npm run package && sam deploy --stack-name cornertasks-${STAGE:-dev} --parameter-overrides Stage=${STAGE:-dev} --capabilities CAPABILITY_IAM --resolve-s3 --no-confirm-changeset --no-fail-on-empty-changeset && npm run print-outputs",
     "deploy:prod": "STAGE=prod npm run package && sam deploy --stack-name cornertasks-prod --parameter-overrides Stage=prod --capabilities CAPABILITY_IAM --resolve-s3 --no-confirm-changeset --no-fail-on-empty-changeset && STAGE=prod npm run print-outputs",
     "deploy:web": "node scripts/deploy-web.mjs",
-    "print-outputs": "node scripts/print-outputs.mjs"
+    "print-outputs": "node scripts/print-outputs.mjs",
+    "init-signing-key": "node scripts/init-signing-key.mjs",
+    "sign-did-jwt": "ts-node scripts/sign-did-jwt.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.654.0",
+    "@aws-sdk/client-ssm": "^3.654.0",
+    "@aws-sdk/lib-dynamodb": "^3.654.0",
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^1.4.0",
+    "@scure/base": "^1.1.7",
+    "esbuild": "^0.23.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.145",
@@ -22,6 +34,7 @@
     "eslint": "^8.57.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.5.0"
   },
   "engines": {

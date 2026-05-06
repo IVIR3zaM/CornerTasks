@@ -19,7 +19,7 @@ Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.
 - [x] **2.** Repo restructure + split the Swift file + add unit tests (integration tests still pass)
 - [x] **3.** AWS backend skeleton + S3 static-site bucket + "bring your own AWS" docs + standalone-mode default in app config
 - [x] **4.** Shared sync protocol spec (`docs/sync-protocol.md`)
-- [ ] **5.** Backend impl: DynamoDB schema, push/pull handlers
+- [x] **5.** Backend impl: DynamoDB schema, push/pull handlers
 - [ ] **6.** Web app skeleton (Vite + React, mobile-first), local-only, S3 deploy script
 - [ ] **7.** Crypto on macOS: mnemonic → Ed25519 → `did:key` + AES-256-GCM data encryption
 - [ ] **8.** Crypto on web: same scheme, cross-implementation test vectors

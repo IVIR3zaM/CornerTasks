@@ -18,9 +18,12 @@ If you fork and prefer CDK, the resources to recreate are obvious from `template
 
 | Resource | Purpose |
 | --- | --- |
-| `HttpApi` (API Gateway HTTP API) | Single API with `POST /v1/sync/push` and `GET /v1/sync/pull`. CORS open. |
-| `PushFunction`, `PullFunction` (Lambda, Node 20, arm64) | Placeholder skeletons returning `{ ok: true, todo: "iteration 5" }`. Real handlers land in iteration 5. |
-| `EventsTable` (DynamoDB, on-demand, PITR on) | Placeholder schema (`pk` / `sk`). Finalized in iteration 5 once the sync protocol spec lands (iteration 4). |
+| `HttpApi` (API Gateway HTTP API) | Single API with `POST /v1/sync/push`, `GET /v1/sync/pull`, `POST /v1/auth/challenge`, and `POST /v1/auth/token`. CORS open. |
+| `PushFunction`, `PullFunction` (Lambda, Node 20, arm64) | Sync handlers per `docs/sync-protocol.md` §7. Both are protected by `requireBearer` middleware (§8). |
+| `AuthChallengeFunction`, `AuthTokenFunction` (Lambda, Node 20, arm64) | DID-Auth → Bearer JWT flow per `docs/sync-protocol.md` §8. Issues 32-byte single-use challenges (5 min TTL) and 1 h bearer JWTs. |
+| `EventsTable` (DynamoDB, on-demand, PITR on) | Single-table: `pk = ACCOUNT#<accountDid>`, `sk = TASK#<taskId>`. GSI `ByUpdatedAt` keyed by `(pk, updatedAt)` powers `pull?since=...`. |
+| `AuthChallengesTable` (DynamoDB, on-demand, native TTL) | `pk = AUTHCHAL#<accountDid>`, `sk = <challenge>`. Server-side TTL on `ttl` evicts unused challenges; consumed challenges are deleted atomically. |
+| `JwtSigningReadPolicy` + SSM Parameter Store | Per-deploy bearer-JWT signing key. Default `JwtAlg=EdDSA` stores private key as `SecureString` at `/cornertasks/<stage>/jwt-signing-key` and the public part at `/cornertasks/<stage>/jwt-signing-key-public`. `JwtAlg=HS256` switches to a single shared `SecureString` at `/cornertasks/<stage>/jwt-hs256-secret`. |
 | `WebBucket` (S3, private, SSE-S3) | Holds the built web app. **Public access fully blocked** — the bucket is reachable only via CloudFront. |
 | `WebOriginAccessControl` + `WebDistribution` (CloudFront) | HTTPS-only, SPA fallback (`403/404 → /index.html`). Default `PriceClass_100` (US/EU edges) — change in `template.yaml` if you want a wider footprint. |
 
@@ -50,15 +53,21 @@ The user/role you deploy as needs to manage the resources above plus the CloudFo
     { "Effect": "Allow", "Action": ["dynamodb:*"],                "Resource": "*" },
     { "Effect": "Allow", "Action": ["s3:*"],                      "Resource": "*" },
     { "Effect": "Allow", "Action": ["cloudfront:*"],              "Resource": "*" },
+    { "Effect": "Allow", "Action": ["ssm:*"],                     "Resource": "*" },
     { "Effect": "Allow", "Action": [
         "iam:CreateRole", "iam:DeleteRole", "iam:GetRole",
         "iam:PassRole", "iam:AttachRolePolicy", "iam:DetachRolePolicy",
-        "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:TagRole"
+        "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:TagRole",
+        "iam:CreatePolicy", "iam:DeletePolicy", "iam:GetPolicy",
+        "iam:ListPolicyVersions", "iam:CreatePolicyVersion",
+        "iam:DeletePolicyVersion"
       ], "Resource": "*" },
     { "Effect": "Allow", "Action": ["logs:*"],                    "Resource": "*" }
   ]
 }
 ```
+
+The `ssm:*` block is needed because iteration 5 provisions a managed policy that reads the per-deploy bearer-JWT signing key from SSM Parameter Store, and `init-signing-key` writes those parameters. The expanded `iam:*` actions cover the new `JwtSigningReadPolicy` managed policy attached to the auth and sync Lambdas.
 
 Tighten this in production (scope `Resource` to the stack's resource ARNs, drop `*` actions you don't need).
 
@@ -71,7 +80,9 @@ Tighten this in production (scope `Resource` to the stack's resource ARNs, drop 
    cd backend/aws
    npm install
    AWS_REGION=us-east-1 STAGE=prod npm run deploy:prod
+   AWS_REGION=us-east-1 STAGE=prod npm run init-signing-key  # one-shot per stage
    ```
+   `init-signing-key` writes the per-deploy bearer-JWT signing key to SSM. Re-run only if you rotate the key or flip `JwtAlg` between `EdDSA` (default) and `HS256`. To switch to HS256, deploy with `--parameter-overrides JwtAlg=HS256` and re-run `JWT_ALG=HS256 npm run init-signing-key`.
 4. **Note the outputs** — the script prints the `ApiUrl` and `WebUrl` at the end. You can re-print them later with:
    ```bash
    AWS_REGION=us-east-1 STAGE=prod npm run print-outputs

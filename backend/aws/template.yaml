@@ -1,18 +1,14 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  CornerTasks BYO-AWS backend (skeleton). Iteration 3 stands up the API,
-  S3+CloudFront for the web app, and a placeholder DynamoDB table. Real
-  handler logic and the finalized table schema land in iteration 5.
+  CornerTasks BYO-AWS backend. Iteration 5 lands real push/pull plus the
+  DID-Auth → Bearer JWT flow described in docs/sync-protocol.md §8.
 
 Parameters:
   Stage:
     Type: String
     Default: dev
     AllowedPattern: '^[a-z][a-z0-9-]*$'
-    Description: Deployment stage name (e.g. dev, prod). Used as a suffix on
-      stack-owned resource names so the same AWS account can host multiple
-      copies side by side.
   CloudFrontPriceClass:
     Type: String
     Default: PriceClass_100
@@ -20,8 +16,19 @@ Parameters:
       - PriceClass_100
       - PriceClass_200
       - PriceClass_All
-    Description: CloudFront edge footprint. Default PriceClass_100 (US/EU)
-      keeps BYO-AWS bills small. Change to PriceClass_All for global edges.
+  JwtAlg:
+    Type: String
+    Default: EdDSA
+    AllowedValues: [EdDSA, HS256]
+    Description: Algorithm for the server-issued bearer JWT. EdDSA is the
+      default (per-deploy Ed25519 keypair); HS256 uses a shared secret. Both
+      keys live in SSM Parameter Store under /cornertasks/<stage>/.
+  AccessTokenTtlSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 300
+    MaxValue: 86400
+    Description: Lifetime of the bearer JWT issued by /v1/auth/token.
 
 Globals:
   Function:
@@ -30,6 +37,16 @@ Globals:
     MemorySize: 256
     Timeout: 10
     Tracing: Active
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        EVENTS_TABLE: !Ref EventsTable
+        AUTH_CHALLENGES_TABLE: !Ref AuthChallengesTable
+        JWT_ALG: !Ref JwtAlg
+        ACCESS_TOKEN_TTL_S: !Ref AccessTokenTtlSeconds
+        JWT_PRIVATE_SSM_PARAM: !Sub /cornertasks/${Stage}/jwt-signing-key
+        JWT_PUBLIC_SSM_PARAM: !Sub /cornertasks/${Stage}/jwt-signing-key-public
+        JWT_SECRET_SSM_PARAM: !Sub /cornertasks/${Stage}/jwt-hs256-secret
 
 Resources:
 
@@ -38,9 +55,36 @@ Resources:
   EventsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      # Placeholder schema — finalized in iteration 5 once the sync protocol
-      # spec (iteration 4) lands.
       TableName: !Sub cornertasks-${Stage}-events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: updatedAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: ByUpdatedAt
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: updatedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  AuthChallengesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub cornertasks-${Stage}-auth-challenges
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: pk
@@ -52,8 +96,9 @@ Resources:
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   # --- API + Lambdas -------------------------------------------------------
 
@@ -70,12 +115,11 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub cornertasks-${Stage}-push
-      CodeUri: dist/
-      Handler: handlers/push.handler
-      Environment:
-        Variables:
-          EVENTS_TABLE: !Ref EventsTable
-          STAGE: !Ref Stage
+      CodeUri: ./
+      Handler: push.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref EventsTable }
+        - !Ref JwtSigningReadPolicy
       Events:
         Push:
           Type: HttpApi
@@ -83,17 +127,24 @@ Resources:
             ApiId: !Ref HttpApi
             Method: POST
             Path: /v1/sync/push
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Target: node20
+        Sourcemap: true
+        External: ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/client-ssm"]
+        EntryPoints: [src/handlers/push.ts]
 
   PullFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub cornertasks-${Stage}-pull
-      CodeUri: dist/
-      Handler: handlers/pull.handler
-      Environment:
-        Variables:
-          EVENTS_TABLE: !Ref EventsTable
-          STAGE: !Ref Stage
+      CodeUri: ./
+      Handler: pull.handler
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref EventsTable }
+        - !Ref JwtSigningReadPolicy
       Events:
         Pull:
           Type: HttpApi
@@ -101,6 +152,80 @@ Resources:
             ApiId: !Ref HttpApi
             Method: GET
             Path: /v1/sync/pull
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Target: node20
+        Sourcemap: true
+        External: ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/client-ssm"]
+        EntryPoints: [src/handlers/pull.ts]
+
+  AuthChallengeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub cornertasks-${Stage}-auth-challenge
+      CodeUri: ./
+      Handler: challenge.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref AuthChallengesTable }
+      Events:
+        AuthChallenge:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /v1/auth/challenge
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Target: node20
+        Sourcemap: true
+        External: ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/client-ssm"]
+        EntryPoints: [src/handlers/auth/challenge.ts]
+
+  AuthTokenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub cornertasks-${Stage}-auth-token
+      CodeUri: ./
+      Handler: token.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref AuthChallengesTable }
+        - !Ref JwtSigningReadPolicy
+      Events:
+        AuthToken:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /v1/auth/token
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Target: node20
+        Sourcemap: true
+        External: ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/client-ssm"]
+        EntryPoints: [src/handlers/auth/token.ts]
+
+  JwtSigningReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      # No ManagedPolicyName — letting CloudFormation auto-generate it keeps
+      # the deploy on CAPABILITY_IAM (named IAM resources would force the
+      # operator to redeploy with CAPABILITY_NAMED_IAM).
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+            Resource:
+              - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cornertasks/${Stage}/jwt-signing-key
+              - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cornertasks/${Stage}/jwt-signing-key-public
+              - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cornertasks/${Stage}/jwt-hs256-secret
 
   # --- Web hosting (private S3 + CloudFront with OAC) ---------------------
 
@@ -150,9 +275,7 @@ Resources:
           AllowedMethods: [GET, HEAD, OPTIONS]
           CachedMethods: [GET, HEAD]
           Compress: true
-          # CachingOptimized managed policy
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-        # SPA fallback — let the React app handle its own routes.
         CustomErrorResponses:
           - ErrorCode: 403
             ResponseCode: 200
@@ -182,17 +305,20 @@ Outputs:
   ApiUrl:
     Description: Base URL for the sync API. Paste into the app's Cloud Sync
       settings.
-    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
   WebUrl:
     Description: CloudFront URL for the web app. Returns 404 until iteration 6
       ships and `npm run deploy:web` uploads a build.
     Value: !Sub https://${WebDistribution.DomainName}
   WebBucketName:
-    Description: S3 bucket that backs the web app. Used by `npm run deploy:web`.
     Value: !Ref WebBucket
   WebDistributionId:
-    Description: CloudFront distribution ID. Used by `npm run deploy:web` for
-      cache invalidation.
     Value: !Ref WebDistribution
   EventsTableName:
     Value: !Ref EventsTable
+  AuthChallengesTableName:
+    Value: !Ref AuthChallengesTable
+  JwtSigningKeyParam:
+    Description: SSM parameter name for the EdDSA private signing key.
+      Generate it once with `npm run init-signing-key` (see backend/aws/README.md).
+    Value: !Sub /cornertasks/${Stage}/jwt-signing-key
