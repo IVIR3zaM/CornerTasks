@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/models/duestatus.ts","./src/models/prefs.ts","./src/models/taskitem.ts","./src/storage/taskstore.ts","./src/ui/app.tsx","./src/ui/archivelist.tsx","./src/ui/duedatepicker.tsx","./src/ui/settingspanel.tsx","./src/ui/tasklist.tsx","./src/ui/icons.tsx","./tests/duestatus.test.ts","./tests/taskstore.test.ts","./tests/setup.ts"],"version":"5.9.3"}
