@@ -21,7 +21,7 @@ Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.
 - [x] **4.** Shared sync protocol spec (`docs/sync-protocol.md`)
 - [x] **5.** Backend impl: DynamoDB schema, push/pull handlers
 - [x] **6.** Web app skeleton (Vite + React, mobile-first), local-only, S3 deploy script
-- [ ] **7.** Crypto on macOS: mnemonic → Ed25519 → `did:key` + AES-256-GCM data encryption
+- [x] **7.** Crypto on macOS: mnemonic → Ed25519 → `did:key` + AES-256-GCM data encryption
 - [ ] **8.** Crypto on web: same scheme, cross-implementation test vectors
 - [ ] **9.** Account UI on macOS (standalone-by-default; enable/disable cloud sync; show DID; merge warning)
 - [ ] **10.** Account UI on web (same flows + camera-based QR scan)
@@ -270,8 +270,8 @@ Add a "How private is cloud sync?" section explaining:
   - Mnemonic → DID is stable across runs.
   - Round-trip encrypt/decrypt; wrong key throws.
   - did:key encoding matches the W3C DID spec test vector for Ed25519.
-  - DID-JWT vector: for a fixed mnemonic + audience + nonce + iat, `Identity.makeDidJwt` produces a known compact JWS string. Tested here and in iteration 8 against the same `docs/crypto-vectors.json` entry.
-  - Cross-impl fixtures (a known mnemonic → expected DID, expected HKDF key hex, expected ciphertext for fixed plaintext+nonce, expected DID-JWT for fixed audience+nonce+iat) emitted to `docs/crypto-vectors.json` for iteration 8 to consume.
+  - DID-JWT structural vector: for a fixed mnemonic + audience + nonce + iat, the header and payload base64url-encodings in the compact JWS match `docs/crypto-vectors.json`, and the signature verifies against the account's public key. The signature itself is **not** byte-stable because Apple `CryptoKit`'s Ed25519 is randomized; this is acceptable per RFC 8032 §5.1.6 (any valid signature verifies). Iteration 8 (web, `@noble/ed25519`) asserts the same structural fields and verifies its own signature; both signatures are verifiable by either implementation.
+  - Cross-impl fixtures (a known mnemonic → expected DID, expected HKDF key hex, expected ciphertext for fixed plaintext+nonce, expected DID-JWT header+payload for fixed audience+nonce+iat) emitted to `docs/crypto-vectors.json` for iteration 8 to consume.
 
 **Acceptance criteria:** `swift test` passes. No UI changes. `docs/crypto-vectors.json` exists.
 

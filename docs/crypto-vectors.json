@@ -1,0 +1,36 @@
+{
+  "_comment": "Cross-implementation crypto fixtures for CornerTasks v0.2.0. Iteration 7 (macOS) emits these; iteration 8 (web) consumes them. All bytes are hex unless noted. The mnemonic is the standard BIP-39 'abandon × 11 + about' vector.",
+  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+  "passphrase": "",
+  "bip39SeedHex": "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4",
+  "hkdf": {
+    "alg": "HKDF-SHA256",
+    "saltHex": "",
+    "identityInfo": "cornertasks-identity-ed25519",
+    "encryptionInfo": "cornertasks-encryption-aesgcm",
+    "outputLength": 32
+  },
+  "identitySeedHex": "a38311de57e584090c452264fa9c23324f2526fa6b1ebca99e8fffd41874a6fe",
+  "encryptionKeyHex": "2572dcdb6a2e9cef32036e054a80fa221db6548825971f6c2d1fe65b5fe945b2",
+  "publicKeyHex": "146cab83e8f2eb3630662f34d14cb714e3cd34fc8cfe2d55d41b2ccd555afdeb",
+  "accountDid": "did:key:z6MkfpzJoQzHMA4M6v5c3bVbYmsSorjtRRuy5TwCJWz6ZGr6",
+  "aesGcm": {
+    "alg": "AES-256-GCM",
+    "nonceHex": "00112233445566778899aabb",
+    "plaintext": "{\"title\":\"Buy milk\",\"createdAt\":\"2026-05-04T10:00:00.000Z\",\"completedAt\":null,\"dueDate\":\"2026-05-06\",\"order\":3}",
+    "aad": "did:key:z6MkfpzJoQzHMA4M6v5c3bVbYmsSorjtRRuy5TwCJWz6ZGr6|task-fixed-001|event-fixed-001",
+    "ciphertextHex": "3198bf3d1f055598251eded426fb568d888bd2be47091e300a3a23d3c1e7e59760acf13cb316b6e30eb41c5ac0146c29c562013699261ac37c660d2c083767ef17bff15afb909b955434e75a3461033932dab053e0535d0ade830fbd84edf4a25fed7ec3bea8aa170a5127994f05e68d54c7b46f5db645f622137634ae1560"
+  },
+  "didJwt": {
+    "_comment": "Compact JWS = headerB64Url + '.' + payloadB64Url + '.' + base64url(Ed25519_sign(privKey, signingInput)). Apple CryptoKit's Ed25519 is randomized, so the signature segment differs per call but always verifies — both clients assert (a) headerB64Url and payloadB64Url match these strings exactly, and (b) the signature verifies against the account's public key. @noble/ed25519 on web is RFC-8032 deterministic; its signature segment is reproducible.",
+    "alg": "EdDSA",
+    "audience": "https://example.test/prod",
+    "nonce": "deadbeefdeadbeefdeadbeefdeadbeef",
+    "iat": 1746466931,
+    "exp": 1746467231,
+    "headerJson": "{\"alg\":\"EdDSA\",\"typ\":\"JWT\",\"kid\":\"did:key:z6MkfpzJoQzHMA4M6v5c3bVbYmsSorjtRRuy5TwCJWz6ZGr6#z6MkfpzJoQzHMA4M6v5c3bVbYmsSorjtRRuy5TwCJWz6ZGr6\"}",
+    "payloadJson": "{\"iss\":\"did:key:z6MkfpzJoQzHMA4M6v5c3bVbYmsSorjtRRuy5TwCJWz6ZGr6\",\"sub\":\"did:key:z6MkfpzJoQzHMA4M6v5c3bVbYmsSorjtRRuy5TwCJWz6ZGr6\",\"aud\":\"https://example.test/prod\",\"nonce\":\"deadbeefdeadbeefdeadbeefdeadbeef\",\"iat\":1746466931,\"exp\":1746467231}",
+    "headerB64Url": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImRpZDprZXk6ejZNa2ZwekpvUXpITUE0TTZ2NWMzYlZiWW1zU29yanRSUnV5NVR3Q0pXejZaR3I2I3o2TWtmcHpKb1F6SE1BNE02djVjM2JWYlltc1Nvcmp0UlJ1eTVUd0NKV3o2WkdyNiJ9",
+    "payloadB64Url": "eyJpc3MiOiJkaWQ6a2V5Ono2TWtmcHpKb1F6SE1BNE02djVjM2JWYlltc1Nvcmp0UlJ1eTVUd0NKV3o2WkdyNiIsInN1YiI6ImRpZDprZXk6ejZNa2ZwekpvUXpITUE0TTZ2NWMzYlZiWW1zU29yanRSUnV5NVR3Q0pXejZaR3I2IiwiYXVkIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvcHJvZCIsIm5vbmNlIjoiZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWYiLCJpYXQiOjE3NDY0NjY5MzEsImV4cCI6MTc0NjQ2NzIzMX0"
+  }
+}
