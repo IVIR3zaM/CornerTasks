@@ -1,0 +1,71 @@
+# End-to-end wire-protocol smoke test against a deployed CornerTasks backend.
+#
+# Runs `backend/aws/scripts/sync-doctor.ts` (challenge → DID-JWT → token → push →
+# pull → decrypt) against the URL stored in the repository variable CT_API_URL,
+# using the mnemonic stored in the repository secret CT_MNEMONIC.
+#
+# Trigger:
+#   - workflow_dispatch              — run on demand from the Actions UI.
+#   - workflow_run on Deploy backend  — automatically verifies a fresh dev/prod
+#                                       deploy before any clients pick it up.
+#   - pull_request paths-filter      — runs on PRs that touch the wire format
+#                                      (apps/, backend/, docs/sync-protocol.md).
+#
+# This workflow does NOT carry AWS credentials. It only needs an HTTPS reach to
+# the deployed ApiUrl and the test mnemonic. Forks: set repository variable
+# CT_API_URL (your dev stack ApiUrl) and repository secret CT_MNEMONIC (a
+# throwaway 12-word mnemonic — anyone with it can read the test account).
+name: Smoke test (sync-doctor)
+
+on:
+  workflow_dispatch: {}
+  workflow_run:
+    workflows: ["Deploy backend (BYO-AWS)"]
+    types: [completed]
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'backend/**'
+      - 'docs/sync-protocol.md'
+      - '.github/workflows/smoke-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # Don't run the post-deploy hook if the deploy failed, and skip
+    # smoke-testing PRs from forks (they cannot read repo secrets).
+    if: >
+      github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      CT_API_URL: ${{ vars.CT_API_URL }}
+      CT_MNEMONIC: ${{ secrets.CT_MNEMONIC }}
+    steps:
+      - name: Guard — required inputs
+        run: |
+          if [ -z "$CT_API_URL" ]; then
+            echo "::error::Missing repo variable CT_API_URL (the deployed ApiUrl to smoke-test)."
+            exit 1
+          fi
+          if [ -z "$CT_MNEMONIC" ]; then
+            echo "::error::Missing repo secret CT_MNEMONIC (a throwaway 12-word BIP-39 mnemonic)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/aws/package-lock.json
+
+      - name: Install backend deps
+        working-directory: backend/aws
+        run: npm ci
+
+      - name: Run sync-doctor
+        working-directory: backend/aws
+        run: npm run smoke-test

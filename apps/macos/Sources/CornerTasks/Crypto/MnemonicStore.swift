@@ -20,7 +20,14 @@ enum MnemonicStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        let attrs: [String: Any] = [kSecValueData as String: data]
+        let attrs: [String: Any] = [
+            kSecValueData as String: data,
+            // Pin accessibility: only readable while the device is unlocked, AND
+            // never copied to iCloud Keychain or restored to a different device.
+            // The mnemonic must stay where it was provisioned — users that want it
+            // on another device transfer it explicitly via QR / paste.
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
         let updateStatus = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
         if updateStatus == errSecSuccess { return }
         if updateStatus != errSecItemNotFound {
@@ -28,6 +35,7 @@ enum MnemonicStore {
         }
         var add = query
         add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         let addStatus = SecItemAdd(add as CFDictionary, nil)
         if addStatus != errSecSuccess {
             throw MnemonicStoreError.unexpectedStatus(addStatus)

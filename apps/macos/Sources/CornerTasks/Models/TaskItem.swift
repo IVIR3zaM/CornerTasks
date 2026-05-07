@@ -7,6 +7,8 @@ struct TaskItem: Identifiable, Hashable {
     var completedAt: Date? = nil
     var dueDate: Date? = nil
     var order: Int = 0
+    var updatedAt: Date = Date()
+    var deletedAt: Date? = nil
 
     var isDone: Bool { completedAt != nil }
 }

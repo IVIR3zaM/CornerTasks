@@ -45,6 +45,7 @@ struct CloudSyncSection: View {
                 cloudSyncEnabled = true
                 Prefs.cloudSyncEnabled = true
                 Prefs.backendURL = url
+                NotificationCenter.default.post(name: .cornerTasksCloudSyncChanged, object: nil)
             }
         }
     }
@@ -121,6 +122,7 @@ struct CloudSyncSection: View {
                 cloudSyncEnabled = false
                 Prefs.cloudSyncEnabled = false
                 pingState = .idle
+                NotificationCenter.default.post(name: .cornerTasksCloudSyncChanged, object: nil)
             }
             .controlSize(.small)
         }
@@ -144,7 +146,25 @@ struct CloudSyncSection: View {
                     )
             }
 
-            DisclosureGroup(isExpanded: $showMnemonic) {
+            DisclosureGroup(isExpanded: Binding(
+                get: { showMnemonic },
+                set: { newValue in
+                    if newValue {
+                        // Two-step gate: device-owner auth first, then load + display.
+                        // Without this, a bystander on an unlocked Mac could expand
+                        // the disclosure and read the mnemonic with no friction
+                        // (the keychain "Always Allow" suppresses the system prompt).
+                        Task { @MainActor in
+                            let ok = await RevealGate.require(reason: "Reveal your CornerTasks mnemonic.")
+                            guard ok else { return }
+                            account.loadIfPresent()
+                            showMnemonic = true
+                        }
+                    } else {
+                        showMnemonic = false
+                    }
+                }
+            )) {
                 if showMnemonic, let m = account.mnemonic {
                     Text("Treat these 12 words like a password. Anyone with them can read and modify this account's tasks.")
                         .font(.caption)
@@ -163,8 +183,27 @@ struct CloudSyncSection: View {
                 Text("Show mnemonic").font(.caption)
             }
 
-            DisclosureGroup(isExpanded: $showQR) {
+            DisclosureGroup(isExpanded: Binding(
+                get: { showQR },
+                set: { newValue in
+                    if newValue {
+                        // Same gate as Show mnemonic — the QR encodes the same secret.
+                        Task { @MainActor in
+                            let ok = await RevealGate.require(reason: "Reveal your CornerTasks recovery QR code.")
+                            guard ok else { return }
+                            account.loadIfPresent()
+                            showQR = true
+                        }
+                    } else {
+                        showQR = false
+                    }
+                }
+            )) {
                 if showQR, let m = account.mnemonic {
+                    Text("This QR code encodes the same 12 words as your mnemonic. Treat it like a password — anyone who scans it can read and modify this account's tasks.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                     QRCodeView(payload: m)
                         .padding(.top, 4)
                     Text("Scan this with the web app on another device to import this account.")
@@ -216,11 +255,19 @@ struct CloudSyncSection: View {
 
     static func describe(_ error: Error) -> String {
         switch error {
-        case BackendPingError.invalidURL: return "URL looks malformed."
-        case BackendPingError.http(let s): return "Server replied HTTP \(s)."
-        case BackendPingError.unexpectedResponse: return "Reachable, but the response did not look like a CornerTasks backend."
-        case BackendPingError.transport(let m): return "Could not reach the URL: \(m)"
-        default: return "Failed: \(error)"
+        case BackendPingError.invalidURL:
+            return "URL looks malformed."
+        case BackendPingError.http(let status, let reason):
+            if let reason { return "Server replied HTTP \(status) (\(reason))." }
+            return "Server replied HTTP \(status)."
+        case BackendPingError.unexpectedResponse:
+            return "Reachable, but the response did not look like a CornerTasks backend."
+        case BackendPingError.audienceMismatch(let expected, let got):
+            return "URL mismatch: this deploy's canonical audience is \(got), but you typed \(expected). Use the canonical URL or the auth-token step will reject your DID-JWT."
+        case BackendPingError.transport(let m):
+            return "Could not reach the URL: \(m)"
+        default:
+            return "Failed: \(error)"
         }
     }
 }

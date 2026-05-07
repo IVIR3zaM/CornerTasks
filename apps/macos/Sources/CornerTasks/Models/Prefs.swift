@@ -1,10 +1,28 @@
 import AppKit
 import Foundation
 
+extension Notification.Name {
+    /// Posted whenever `Prefs.cloudSyncEnabled` or `Prefs.backendURL` is mutated by
+    /// the UI. `AppDelegate` observes this to start or stop the sync engine in-process
+    /// (no app restart required).
+    static let cornerTasksCloudSyncChanged = Notification.Name("CornerTasks.cloudSyncChanged")
+}
+
 enum Prefs {
     static let showInDockKey = "showInDock"
     static let cloudSyncEnabledKey = "cloudSyncEnabled"
     static let backendURLKey = "backendURL"
+    static let deviceIdKey = "cornertasks.sync.deviceId"
+
+    /// Stable random UUID generated once on first sync. Used as `deviceId` in §3 events.
+    static var deviceId: String {
+        if let existing = UserDefaults.standard.string(forKey: deviceIdKey), !existing.isEmpty {
+            return existing
+        }
+        let id = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(id, forKey: deviceIdKey)
+        return id
+    }
 
     static var showInDock: Bool {
         get {

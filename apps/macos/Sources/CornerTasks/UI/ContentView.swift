@@ -89,6 +89,9 @@ struct ContentView: View {
                 CloudSyncSection(account: account)
             }
         }
+        // Opening Settings is the user signalling intent to inspect account info.
+        // Loading lazily keeps the Keychain prompt out of the launch path.
+        .onAppear { account.loadIfPresent() }
     }
 
     private var addBox: some View {

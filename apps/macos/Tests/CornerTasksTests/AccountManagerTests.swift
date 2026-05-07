@@ -19,8 +19,13 @@ final class AccountManagerTests: XCTestCase {
 
         // Same mnemonic in keychain → same DID after a fresh manager.
         let manager2 = AccountManager(store: provider)
+        XCTAssertNil(manager2.did, "init must not auto-load — Keychain access is deferred")
+        manager2.loadIfPresent()
         XCTAssertEqual(manager2.did, didA)
         XCTAssertEqual(manager2.mnemonic, mnemonic)
+        // Idempotent: a second call is a no-op (no extra store read).
+        manager2.loadIfPresent()
+        XCTAssertEqual(manager2.did, didA)
     }
 
     func testImportNormalisesAndProducesSameDidAsGenerate() throws {
@@ -32,7 +37,9 @@ final class AccountManagerTests: XCTestCase {
         let manager = AccountManager(store: provider2)
         let normalised = try manager.importMnemonic("  \(m1.uppercased())  \n  ")
         XCTAssertEqual(normalised, m1.lowercased())
-        XCTAssertEqual(manager.did, AccountManager(store: provider).did)
+        let other = AccountManager(store: provider)
+        other.loadIfPresent()
+        XCTAssertEqual(manager.did, other.did)
     }
 
     func testImportRejectsInvalidMnemonic() {

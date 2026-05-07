@@ -145,6 +145,9 @@ export function SettingsPanel(): JSX.Element {
               <summary>Show QR code</summary>
               {account.mnemonic && (
                 <>
+                  <p className="warn">
+                    This QR code encodes the same 12 words as your mnemonic. Treat it like a password — anyone who scans it can read and modify this account's tasks.
+                  </p>
                   <QRCodeImage payload={account.mnemonic} downloadName="cornertasks-mnemonic.png" />
                   <p className="muted small">Scan this with another device to import this account.</p>
                 </>

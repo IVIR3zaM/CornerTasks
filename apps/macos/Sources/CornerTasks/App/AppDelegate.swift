@@ -5,11 +5,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NSPanel?
     private var statusItem: NSStatusItem?
     private let store = TaskStore()
+    private var syncEngine: SyncEngine?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyActivationPolicy()
         setupStatusItem()
         showPanel()
+        startSyncIfEnabled()
+        // The settings UI flips Prefs.cloudSyncEnabled at runtime; observe the change
+        // so we start/stop the engine without requiring an app restart.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCloudSyncChanged),
+            name: .cornerTasksCloudSyncChanged,
+            object: nil
+        )
+    }
+
+    @objc private func handleCloudSyncChanged() {
+        startSyncIfEnabled()
+    }
+
+    /// Starts the sync engine iff cloud sync is enabled, a backend URL is configured,
+    /// and a key (mnemonic + identity) is in the Keychain. Otherwise the app stays
+    /// fully offline — no enqueuer, no timers, no network.
+    ///
+    /// The Keychain is queried only on this branch — when cloud sync is off the user
+    /// sees no authorisation prompt at launch.
+    func startSyncIfEnabled() {
+        syncEngine?.stop()
+        syncEngine = nil
+
+        guard Prefs.cloudSyncEnabled, let apiUrl = Prefs.backendURL else { return }
+        let account = AccountManager()
+        account.loadIfPresent()
+        guard let identity = account.identity,
+              let mnemonic = account.mnemonic,
+              let transport = URLSessionSyncTransport(apiUrl: apiUrl) else { return }
+
+        let key = DataKey.encryptionKey(from: Mnemonic.toSeed(mnemonic))
+        let engine = SyncEngine(
+            store: store,
+            transport: transport,
+            identity: identity,
+            encryptionKey: key,
+            deviceId: Prefs.deviceId
+        )
+        engine.start()
+        syncEngine = engine
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

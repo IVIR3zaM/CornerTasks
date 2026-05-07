@@ -6,7 +6,9 @@ Mobile-first web app with feature parity with the v0.1.0 macOS app: add, edit (d
 
 ## Standalone-first
 
-This is a **local-only** build. Cloud sync is **off** by default and there is **no** `backendURL` baked into the bundle. Storage lives entirely in the browser's IndexedDB. The app makes no network calls. Cloud-sync UI and the encrypted sync engine arrive in iterations 9, 10, 11, 12.
+This is a **local-only** build by default. Cloud sync is **off**, there is **no** `backendURL` baked into the bundle, and storage lives entirely in the browser's IndexedDB. With sync off, the app makes no network calls. Cloud-sync UI lands in iterations 9 (macOS) and 10 (web); the encrypted sync engine in iteration 11 (macOS) and 12 (web).
+
+The "Show QR code" and "Show mnemonic" panels both render the same secret as the underlying mnemonic, so both carry the same red "treat like a password" warning.
 
 ## Develop
 
@@ -28,6 +30,10 @@ cd apps/web && npm run build
 cd ../../backend/aws && AWS_REGION=us-east-1 STAGE=dev npm run deploy:web
 ```
 
+## Wire-format parity
+
+The web sync engine (iteration 12) MUST match the macOS engine byte-for-byte on the wire — same DID-JWT shape, same fixed-key-order plaintext encoder, same AAD construction, same archive-cutoff and last-writer-wins rules. Any change here that touches the wire format must keep `npm run smoke-test --prefix backend/aws` green against a deployed dev stack. CI runs that smoke test on every PR touching `apps/`, `backend/`, or `docs/sync-protocol.md` — see [`.github/workflows/smoke-test.yml`](../../.github/workflows/smoke-test.yml).
+
 ## Layout
 
 ```
@@ -35,8 +41,8 @@ apps/web/
 ├── src/
 │   ├── models/      — TaskItem, DueStatus, Prefs (mirror of Swift models)
 │   ├── storage/     — IndexedDB-backed TaskStore
-│   ├── sync/        — empty (filled in iteration 12)
-│   ├── crypto/      — empty (filled in iteration 8)
+│   ├── sync/        — empty (filled in iteration 12; mirrors apps/macos/.../Sync/)
+│   ├── crypto/      — BIP-39 → HKDF → Ed25519 / AES-GCM (iteration 8)
 │   └── ui/          — App, TaskList, ArchiveList, styles.css
 └── tests/           — vitest + fake-indexeddb
 ```

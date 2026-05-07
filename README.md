@@ -41,7 +41,9 @@ The full plan lives in [`ITERATIONS.md`](ITERATIONS.md). It is split so that eac
 - **Auditable evidence:**
   - Wire format: [`docs/sync-protocol.md`](docs/sync-protocol.md) (added in iteration 4).
   - Encryption code: `apps/macos/Sources/CornerTasks/Crypto/` (Swift, iteration 7) and `apps/web/src/crypto/` (TypeScript, iteration 8). Cross-implementation test vectors in `docs/crypto-vectors.json` prove the two implementations produce identical ciphertext for the same input.
+  - **End-to-end smoke test:** `backend/aws/scripts/sync-doctor.ts` walks the full challenge → DID-JWT → bearer → push → pull → decrypt round-trip against a deployed `ApiUrl`. Run locally with `CT_API_URL=… CT_MNEMONIC='…' npm run smoke-test --prefix backend/aws`, or let `.github/workflows/smoke-test.yml` run it after every backend deploy / on every PR that touches `apps/`, `backend/`, or `docs/sync-protocol.md`.
   - There is no key-escrow code anywhere in this repo. The encryption key never leaves the device.
+- **Keychain access is on demand.** The macOS app does **not** read the Keychain at launch. The mnemonic is loaded only when you open Settings, expand "Show mnemonic" or "Show QR code", or the sync engine starts because cloud sync is on — so a user who never enables sync never sees a Keychain authorisation prompt.
 - **Decentralized identity:** your account ID is a `did:key` whose private half lives only on your devices. Two devices with the same mnemonic share the same DID and join the same account.
 - **The backend lives in your AWS account, not anyone else's.** See "Bring your own AWS" below. The released DMG never embeds a backend URL.
 

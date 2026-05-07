@@ -19,6 +19,12 @@ enum AccountError: Error, Equatable {
 /// Holds the user's BIP-39 mnemonic and derived DID. Exposes `did` for UI binding;
 /// the mnemonic is kept in memory only after a generate / import / load and is the
 /// source for "Show mnemonic" / "Show QR code" reveals.
+///
+/// The Keychain is **not** queried on construction — opening the macOS app while
+/// cloud sync is off must not produce a Keychain authorisation prompt. Callers must
+/// invoke `loadIfPresent()` explicitly when the user has signalled intent to see
+/// account info (opening Settings, expanding "Show mnemonic" / "Show QR code", or
+/// the sync engine starting up). `loadIfPresent` is idempotent.
 final class AccountManager: ObservableObject {
     @Published private(set) var did: String?
     private(set) var identity: Identity?
@@ -28,12 +34,15 @@ final class AccountManager: ObservableObject {
 
     init(store: MnemonicProvider = KeychainMnemonicProvider()) {
         self.store = store
-        loadIfPresent()
     }
 
     var hasKey: Bool { identity != nil }
 
+    /// Reads the mnemonic from the configured store and populates `did`/`identity`/
+    /// `mnemonic` if one is present. No-op once a mnemonic has already been loaded
+    /// in this process — the Keychain is queried at most once per session per manager.
     func loadIfPresent() {
+        if mnemonic != nil { return }
         guard let m = try? store.load(), Mnemonic.validate(m) else { return }
         applyMnemonic(m)
     }

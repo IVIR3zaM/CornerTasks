@@ -6,7 +6,17 @@ Always-on-top side panel pinned to the right edge of the screen: add, edit (doub
 
 ## Standalone-first
 
-This is a **local-only** build. Cloud sync is **off** by default and there is **no** `backendURL` baked into the binary. Storage lives entirely on-device at `~/Library/Application Support/CornerTasks/tasks.sqlite3`. The app makes no network calls. Cloud-sync UI and the encrypted sync engine arrive in iterations 9, 11, 12.
+This is a **local-only** build by default. Cloud sync is **off**, there is **no** `backendURL` baked into the binary, and storage lives entirely on-device at `~/Library/Application Support/CornerTasks/tasks.sqlite3`. With sync off, the app makes no network calls. Cloud-sync UI lands in iteration 9; the encrypted sync engine in iteration 11 (macOS) and 12 (web).
+
+**Keychain access is on demand.** The app does **not** read the Keychain at launch. The mnemonic is loaded only when:
+
+- you open Settings (so the Account section can show your DID),
+- you expand "Show mnemonic" or "Show QR code" (defensive — fires in case Settings was bypassed), or
+- the sync engine starts because cloud sync is on.
+
+A user who never enables cloud sync never sees a Keychain authorisation prompt. Toggling cloud sync from Settings starts/stops the in-process sync engine without an app restart (via the `cornerTasksCloudSyncChanged` notification).
+
+**Revealing the secret has its own gate.** Expanding "Show mnemonic" or "Show QR code" runs a fresh `LAPolicy.deviceOwnerAuthentication` check (`Sources/CornerTasks/Crypto/RevealGate.swift`) — Touch ID, Apple Watch, or device password — and *only* renders the secret on success. This prompt is independent of the Keychain ACL: a user who clicked "Always Allow" at Keychain-prompt time still has to authenticate again to display the mnemonic on screen. The mnemonic is also pinned to `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, so it never rides iCloud Keychain to other devices — moving an account between devices is an explicit QR / paste step.
 
 ## Develop
 

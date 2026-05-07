@@ -25,7 +25,7 @@ Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.
 - [x] **8.** Crypto on web: same scheme, cross-implementation test vectors
 - [x] **9.** Account UI on macOS (standalone-by-default; enable/disable cloud sync; show DID; merge warning)
 - [x] **10.** Account UI on web (same flows + camera-based QR scan)
-- [ ] **11.** Sync engine on macOS (push every 10 min, pull every 1 min, archive cutoff, only when cloud sync enabled)
+- [x] **11.** Sync engine on macOS (push every 10 min, pull every 1 min, archive cutoff, only when cloud sync enabled)
 - [ ] **12.** Sync engine on web
 - [ ] **13.** End-to-end verification across one macOS + one web device
 - [ ] **14.** Release v0.2.0
@@ -379,14 +379,58 @@ Add a "How private is cloud sync?" section explaining:
 
 ## Iteration 12 — Sync engine on web
 
-**Goal:** Same engine, same contract.
+**Goal:** Mirror the macOS sync engine on the web client. Same wire format, same timer cadence, same conflict rules, same auth lifecycle. Only the persistence (IndexedDB) and the activation hooks (`visibilitychange`) differ.
+
+**Reference:** the macOS engine lives under `apps/macos/Sources/CornerTasks/Sync/` (iteration 11). Mirror its structure and naming where possible — divergence makes the smoke test (`backend/aws/scripts/sync-doctor.ts`) less load-bearing.
 
 **Deliverables:**
-- IndexedDB schema mirrors macOS (`updatedAt`, `deletedAt`, `syncQueue` object store).
-- `apps/web/src/sync/SyncEngine.ts` with identical timer cadence and conflict rules.
-- Tab visibility: when hidden, pause timers; on `visibilitychange → visible`, immediately call `pullSince()` and `flushPushes()`.
-- `apps/web/src/sync/authSession.ts` — same lifecycle as the macOS `AuthSession`: challenge → DID-JWT (via the iteration 8 `makeDidJwt` helper) → bearer token cached in memory only. Token never written to IndexedDB or `localStorage`. Real transport attaches `Authorization: Bearer <token>` and on `401 token_expired`/`bad_token` drops the cache and retries once.
-- Tests with a fake transport plus an auth-session test that reuses the macOS DID-JWT vector to confirm cross-implementation parity. Extends `docs/crypto-vectors.json` with a fixed `(audience, nonce, iat)` → `didJwt` entry asserted by both apps.
+- IndexedDB schema gains the same fields as the macOS SQLite schema:
+  - `tasks` object store: each row carries `updatedAt: number` (epoch ms) and optional `deletedAt: number`. Migrate existing rows once with `updatedAt = max(createdAt, completedAt, dueDate)`.
+  - new `syncQueue` object store keyed by `eventId` with shape `{ eventId, taskId, op, payloadJSON: ArrayBuffer | string, createdAt, sentAt? }`.
+- `apps/web/src/sync/syncEvent.ts` — typed `SyncEvent`, `EventPlaintext`, fixed-key-order JSON encoder (title, createdAt, completedAt, dueDate, order — same byte sequence as macOS, asserted by `docs/crypto-vectors.json`), AES-256-GCM seal/open with the §4 AAD.
+- `apps/web/src/sync/syncTransport.ts` — protocol with `challenge`, `token`, `push`, `pull`. `FetchTransport` (real) + `FakeTransport` (tests). 401/403 mapping to typed errors (`tokenExpired`, `badToken`, `didMismatch`, `http`). The DID-JWT used at `/v1/auth/token` MUST be produced by the iteration 8 `makeDidJwt(audience, nonce, iat)` helper — no second implementation.
+- `apps/web/src/sync/authSession.ts` — bearer-token lifecycle matching macOS `AuthSession`:
+  - In-memory only. Token MUST NOT be written to IndexedDB or `localStorage`. A unit test creates a fresh `AuthSession` and asserts no token leaks across instances.
+  - Caches until `expiresAt - 60s`, then refreshes proactively.
+  - `withBearer` / `bearer()` accessor + `invalidate()`.
+  - On `401 token_expired` / `401 bad_token`, drops cache and retries once; persistent failure leaves the call unauthorized (the engine retries on the next tick).
+- `apps/web/src/sync/SyncEngine.ts`:
+  - `start()` installs an `eventBuilder` on the local `TaskStore` that — exactly like the macOS `TaskStore.eventBuilder` — receives a `TaskMutationSnapshot` for every local mutation and returns the encrypted `SyncEvent` to insert into `syncQueue`. While cloud sync is disabled, no builder is installed → the queue stays empty → no network calls.
+  - `flushPushes()` every 10 minutes (and on start). Reads `syncQueue` rows where `sentAt == undefined`, applies the 60-day archive cutoff at flush time (skip + mark sent for upserts whose task `completedAt < now - 60d`), POSTs the rest, marks `accepted` + `stale`-rejected as sent. Rows are NOT marked sent on auth failures.
+  - `pullSince()` every 1 minute. Calls `/v1/sync/pull?since=<lastSyncedAt>`, decrypts and applies events with last-writer-wins (`updatedAt` strictly newer wins; equal `updatedAt` falls back to lexicographic `eventId`). Advances `lastSyncedAt` to `serverTime`.
+  - `stop()` cancels timers, removes the `eventBuilder`, releases the `visibilitychange` listener.
+  - Tab visibility: when `document.hidden`, the periodic timers pause (clear them — no busy ticking on a backgrounded tab). On `visibilitychange → visible` resume the timers AND immediately call `pullSince()` + `flushPushes()` so a freshly-foregrounded tab catches up.
+- `apps/web/src/storage/TaskStore.ts` (or equivalent) gets the same surface that the macOS store gained in iteration 11: `eventBuilder`, `pendingQueueRows()`, `markQueueRowsSent(...)`, `taskCompletedAt(...)`, `applyRemoteUpsert(...)`, `applyRemoteDelete(...)`. The remote-application helpers are pure: no event re-enqueued from a pulled event.
+- `lastSyncedAt` persisted in `localStorage` under `cornertasks.sync.lastSyncedAt`. `deviceId` persisted under `cornertasks.sync.deviceId` (random UUID, generated once).
+- Notification / event hook so the settings UI can start/stop the engine without reload (mirrors the macOS `cornerTasksCloudSyncChanged` notification).
+- **`apps/web/src/sync/BackendPing.ts` already aligned** (landed alongside iteration 11's macOS hotfix): the Test button in Settings hits `POST /v1/auth/challenge` — the only sync endpoint that does NOT require a bearer — and verifies the response's `audience` is byte-equal (modulo trailing slash + case) to the typed `ApiUrl`. The new typed error variant is `audienceMismatch { expected, got }`. While building iteration 12, do not regress this back to `/v1/sync/pull`; the sync engine itself uses `SyncTransport.pull` with a bearer token, the ping is intentionally a separate, unauthenticated reachability probe.
+- **Reveal gate before showing the mnemonic / QR code.** Mirror the macOS `RevealGate` (LocalAuthentication, `LAPolicy.deviceOwnerAuthentication`, reuse duration 0). The web equivalent must also be a fresh, per-reveal user gesture that is **independent of how the mnemonic is stored** — IndexedDB has no "Always Allow" affordance, but a bystander on an unlocked browser session would otherwise be one click away from the secret.
+  - `apps/web/src/crypto/RevealGate.ts` — async `require(reason: string): Promise<boolean>`. Returns `true` only on a fresh successful authentication.
+  - Default implementation: WebAuthn platform authenticator (`navigator.credentials.get({ publicKey: { userVerification: "required", … } })`) when `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()` resolves true. Touch ID / Windows Hello / Android biometric prompt — same UX as the macOS gate.
+  - Fallback when no platform authenticator is available: a confirm modal that requires the user to retype the **last four words** of their mnemonic. This is not strong against a determined attacker who has already seen the mnemonic, but it raises the friction above "expand a disclosure" and serves users on browsers without WebAuthn support.
+  - Wire it into `SettingsPanel.tsx`: the "Show mnemonic" and "Show QR code" `<details>` elements MUST NOT render the secret until `RevealGate.require(...)` resolves true. Failure or cancellation collapses the disclosure with no leak.
+  - The `EnableCloudSyncSheet` `generated` step (which shows the mnemonic + QR right after generation) is exempt — the user just generated the key and is being told to back it up. Subsequent reveals from the Account section go through the gate.
+  - Do NOT cache reveal-gate success across disclosure toggles. Each open-of-disclosure runs the prompt fresh.
+- **IndexedDB equivalent of `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` is the database itself** — IndexedDB is per-origin, per-browser-profile, and never syncs across devices. Document this in code comments where the mnemonic is stored, and explicitly set `// SENSITIVE` markers on the read/write paths so future contributors don't move the mnemonic into `localStorage` (which can be read synchronously from any same-origin script and is more leak-prone).
+
+**Tests** (Vitest, with a `FakeTransport`):
+- Round-trip via `FakeTransport`: enqueue an upsert, `flushPushes()` posts the encrypted event, ciphertext decrypts back to the cleartext snapshot.
+- Stale-write rejection (`{ eventId, reason: "stale" }`) marks the queue row sent — same outcome as `accepted`.
+- Archive cutoff: an upsert for a task with `completedAt < now - 60d` is skipped at flush time and marked sent without a network call.
+- Pull merges respect last-writer-wins (newer wins, older ignored, tie broken by `eventId`).
+- Engine does nothing while cloud sync is disabled: a `TaskStore` mutation produces zero `syncQueue` rows when no `eventBuilder` is installed.
+- Tab visibility: when `document.hidden`, no push/pull fires; on `visibilitychange → visible`, both fire immediately.
+- `AuthSession`: caches until near-expiry; refreshes proactively; on `401 token_expired` drops cache and re-authenticates exactly once before failing the tick; never persists the token (parity test against the macOS suite).
+- DID-JWT cross-implementation parity: extends `docs/crypto-vectors.json` with a fixed `(audience, nonce, iat)` → `didJwtHeaderB64Url + didJwtPayloadB64Url` entry, asserted by both apps. (The signature segment is checked for verification only — Apple's CryptoKit signs randomized.)
+- 401 handling on sync calls: `bad_token`/`token_expired` triggers re-auth + single retry; `did_mismatch` is logged as a programming error and does not retry.
+- `BackendPing` (web): unit tests assert it hits `/v1/auth/challenge`, surfaces `audienceMismatch` when the deploy advertises a different canonical URL than the user typed, and surfaces the server's `reason` field on non-2xx (parity with `apps/web/tests/BackendPing.test.ts` as it stands today — keep them green).
+- `RevealGate` (web): unit tests via a test seam (`RevealGate.override = async () => true | false`). With `true`, the "Show mnemonic" disclosure expands and renders the secret; with `false`, the disclosure stays collapsed and `account.mnemonic` is never read. A second test asserts the gate writes nothing to `localStorage` or IndexedDB — its decision must not persist across reveals.
+
+**Smoke-test parity:** every web change that touches the wire format (header order, encoder, DID-JWT shape, error mapping) MUST keep `npm run smoke-test --workspace backend/aws` green against a deployed dev stack. CI runs `sync-doctor` after every backend deploy and on PRs that touch `apps/`, `backend/`, or `docs/sync-protocol.md` — see `.github/workflows/smoke-test.yml`.
+
+**Out of scope:**
+- Service-Worker-backed background sync.
+- Conflict resolution beyond last-writer-wins.
 
 ---
 

@@ -19,6 +19,38 @@ enum Schema {
         if !columnExists(db: db, table: "tasks", column: "due_date") {
             sqlite3_exec(db, "ALTER TABLE tasks ADD COLUMN due_date REAL;", nil, nil, nil)
         }
+
+        // Iteration 11: per-row last-mutation timestamp + soft-delete tombstone.
+        let needsUpdatedAt = !columnExists(db: db, table: "tasks", column: "updated_at")
+        if needsUpdatedAt {
+            // Add nullable first; backfill; then keep nullable (SQLite ALTER cannot
+            // tighten NULL constraints in-place — readers treat 0 as "unset" and the
+            // backfill below sets a real value for every existing row).
+            sqlite3_exec(db, "ALTER TABLE tasks ADD COLUMN updated_at REAL;", nil, nil, nil)
+            sqlite3_exec(db, """
+                UPDATE tasks
+                SET updated_at = MAX(
+                    COALESCE(created_at, 0),
+                    COALESCE(completed_at, 0),
+                    COALESCE(due_date, 0)
+                )
+                WHERE updated_at IS NULL;
+            """, nil, nil, nil)
+        }
+        if !columnExists(db: db, table: "tasks", column: "deleted_at") {
+            sqlite3_exec(db, "ALTER TABLE tasks ADD COLUMN deleted_at REAL;", nil, nil, nil)
+        }
+
+        sqlite3_exec(db, """
+            CREATE TABLE IF NOT EXISTS sync_queue (
+              event_id TEXT PRIMARY KEY,
+              task_id TEXT NOT NULL,
+              op TEXT NOT NULL,
+              payload BLOB NOT NULL,
+              created_at REAL NOT NULL,
+              sent_at REAL
+            );
+        """, nil, nil, nil)
     }
 
     static func columnExists(db: OpaquePointer?, table: String, column: String) -> Bool {

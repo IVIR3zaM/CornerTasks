@@ -104,6 +104,33 @@ npm test           # jest — handler skeleton + future unit tests
 npm run package    # tsc + sam build (no deploy)
 ```
 
+## End-to-end smoke test (`sync-doctor`)
+
+`scripts/sync-doctor.ts` is a Node TypeScript runner that walks the full wire protocol against a deployed `ApiUrl`: challenge → DID-JWT → bearer token → push 1 encrypted upsert → pull → assert ciphertext round-trip and AES-GCM decryption. It exits non-zero with the offending step + reason on failure, so a single `npm run smoke-test` call tells you whether the contract is intact.
+
+```bash
+# Local — point at any deploy you control. Use a throwaway test mnemonic.
+export CT_API_URL=https://abc.execute-api.us-east-1.amazonaws.com/Prod
+export CT_MNEMONIC="abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+npm run smoke-test
+# → sync-doctor: round-trip OK ✓
+```
+
+The mnemonic should not control real data — every event the doctor pushes is visible to anyone holding it. The standard BIP-39 *abandon × 11 + about* vector is fine for dev.
+
+In CI, [`.github/workflows/smoke-test.yml`](../../.github/workflows/smoke-test.yml) runs `sync-doctor` automatically:
+
+- after every successful run of `Deploy backend (BYO-AWS)` (post-deploy verification);
+- on every PR touching `apps/`, `backend/`, or `docs/sync-protocol.md` (regression guard before merge);
+- on `workflow_dispatch` (manual).
+
+To enable it on your fork, add:
+
+- **Variable** `CT_API_URL` — the `ApiUrl` of a long-lived dev stack you don't mind exercising.
+- **Secret** `CT_MNEMONIC` — a throwaway 12-word BIP-39 mnemonic. Anyone who reads workflow logs of a failed run could see DIDs derived from it; do not reuse it for anything you care about.
+
+The smoke test does not need AWS credentials — it only makes HTTPS calls to the API URL.
+
 ## GitHub Actions secrets — what is and isn't needed
 
 - The repo's existing [`release.yml`](../../.github/workflows/release.yml) builds the macOS DMG and **needs no AWS secrets**. It does not deploy anything to AWS.

@@ -13,7 +13,8 @@
     "deploy:web": "node scripts/deploy-web.mjs",
     "print-outputs": "node scripts/print-outputs.mjs",
     "init-signing-key": "node scripts/init-signing-key.mjs",
-    "sign-did-jwt": "ts-node scripts/sign-did-jwt.ts"
+    "sign-did-jwt": "ts-node scripts/sign-did-jwt.ts",
+    "smoke-test": "ts-node scripts/sync-doctor.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.654.0",
