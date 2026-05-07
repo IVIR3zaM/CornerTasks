@@ -10,6 +10,7 @@ type Tab = 'tasks' | 'archive';
 
 export function App() {
   const [store, setStore] = useState<TaskStore | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('tasks');
   const [showSettings, setShowSettings] = useState(false);
   const [active, setActive] = useState<TaskItem[]>([]);
@@ -18,9 +19,13 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    TaskStore.open().then((s) => {
-      if (!cancelled) setStore(s);
-    });
+    TaskStore.open().then(
+      (s) => { if (!cancelled) setStore(s); },
+      (e) => {
+        console.error('TaskStore.open failed', e);
+        if (!cancelled) setOpenError(e instanceof Error ? e.message : String(e));
+      }
+    );
     return () => {
       cancelled = true;
     };
@@ -38,6 +43,7 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store]);
 
+  if (openError) return <div className="app"><div className="empty">Could not open local storage: {openError}</div></div>;
   if (!store) return <div className="app"><div className="empty">Loading…</div></div>;
 
   const onAdd = async (): Promise<void> => {

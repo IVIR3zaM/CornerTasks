@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { AccountManager } from '../crypto/AccountManager';
+import { clearRevealCredential, defaultMnemonicChallenge, makeRevealGate } from '../crypto/RevealGate';
 import { Prefs } from '../models/Prefs';
 import { ping, describePingError, isBackendPingError } from '../sync/BackendPing';
+import { fireCloudSyncChanged } from '../sync/SyncEngine';
 import { EnableCloudSyncSheet } from './EnableCloudSyncSheet';
 import { QRCodeImage } from './QRCodeImage';
 
@@ -42,12 +44,32 @@ export function SettingsPanel(): JSX.Element {
     setBackendURL(url);
     setCloudSyncEnabled(true);
     setShowEnable(false);
+    fireCloudSyncChanged(true);
   };
 
   const onDisable = (): void => {
     Prefs.setCloudSyncEnabled(false);
     setCloudSyncEnabled(false);
     setPingState({ kind: 'idle' });
+    fireCloudSyncChanged(false);
+  };
+
+  const requireReveal = async (reason: string): Promise<boolean> => {
+    if (!account.mnemonic) return false;
+    const gate = makeRevealGate(defaultMnemonicChallenge(account.mnemonic));
+    return gate.require(reason);
+  };
+
+  const toggleMnemonicReveal = async (open: boolean): Promise<void> => {
+    if (!open) { setShowMnemonic(false); return; }
+    const ok = await requireReveal('Confirm to display your mnemonic.');
+    setShowMnemonic(ok);
+  };
+
+  const toggleQRReveal = async (open: boolean): Promise<void> => {
+    if (!open) { setShowQR(false); return; }
+    const ok = await requireReveal('Confirm to display the QR code.');
+    setShowQR(ok);
   };
 
   const runPing = async (): Promise<void> => {
@@ -66,10 +88,12 @@ export function SettingsPanel(): JSX.Element {
   const forget = async (): Promise<void> => {
     await account.forget();
     Prefs.setCloudSyncEnabled(false);
+    clearRevealCredential();
     setCloudSyncEnabled(false);
     setConfirmForget(false);
     setShowMnemonic(false);
     setShowQR(false);
+    fireCloudSyncChanged(false);
   };
 
   return (
@@ -129,9 +153,12 @@ export function SettingsPanel(): JSX.Element {
             <label className="field-label">DID</label>
             <code className="did-box">{account.did}</code>
 
-            <details open={showMnemonic} onToggle={(e) => setShowMnemonic((e.target as HTMLDetailsElement).open)}>
+            <details
+              open={showMnemonic}
+              onToggle={(e) => void toggleMnemonicReveal((e.target as HTMLDetailsElement).open)}
+            >
               <summary>Show mnemonic</summary>
-              {account.mnemonic && (
+              {showMnemonic && account.mnemonic && (
                 <>
                   <p className="warn">
                     Treat these 12 words like a password. Anyone with them can read and modify this account's tasks.
@@ -141,9 +168,12 @@ export function SettingsPanel(): JSX.Element {
               )}
             </details>
 
-            <details open={showQR} onToggle={(e) => setShowQR((e.target as HTMLDetailsElement).open)}>
+            <details
+              open={showQR}
+              onToggle={(e) => void toggleQRReveal((e.target as HTMLDetailsElement).open)}
+            >
               <summary>Show QR code</summary>
-              {account.mnemonic && (
+              {showQR && account.mnemonic && (
                 <>
                   <p className="warn">
                     This QR code encodes the same 12 words as your mnemonic. Treat it like a password — anyone who scans it can read and modify this account's tasks.

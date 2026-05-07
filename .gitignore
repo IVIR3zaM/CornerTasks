@@ -19,3 +19,5 @@ apps/macos/dmg/
 
 # Release output (DMG is generated, don't commit)
 apps/macos/release/*.dmg
+
+node_modules/
