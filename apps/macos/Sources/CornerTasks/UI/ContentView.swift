@@ -28,6 +28,11 @@ struct ContentView: View {
             }
 
             Spacer(minLength: 0)
+
+            Text("v\(Self.appVersion)")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
         }
         .padding(16)
         .frame(minWidth: 280, minHeight: 200)
@@ -175,4 +180,7 @@ struct ContentView: View {
         store.add(newTaskTitle)
         newTaskTitle = ""
     }
+
+    private static let appVersion: String =
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
 }

@@ -11,6 +11,7 @@ import { encryptionKeyBytes } from '../crypto/keys';
 import { toSeed } from '../crypto/mnemonic';
 import { FetchTransport } from '../sync/syncTransport';
 import { ensureDeviceId, SyncEngine, CLOUD_SYNC_CHANGED_EVENT } from '../sync/SyncEngine';
+import pkg from '../../package.json';
 
 type Tab = 'tasks' | 'archive';
 
@@ -179,6 +180,8 @@ export function App() {
       ) : (
         <ArchiveList tasks={archived} store={store} onChanged={() => refresh()} />
       )}
+
+      <footer className="version-footer">v{pkg.version}</footer>
     </div>
   );
 }

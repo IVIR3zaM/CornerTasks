@@ -562,3 +562,11 @@ body {
   color: var(--muted);
   font-size: 14px;
 }
+
+.version-footer {
+  margin-top: auto;
+  padding-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+}
