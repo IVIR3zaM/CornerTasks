@@ -17,9 +17,15 @@ export interface AuthChallenge {
 export interface Store {
   putEvent(ev: StoredEvent): Promise<{ accepted: boolean }>;
   queryEventsSince(accountDid: string, sinceMs: number): Promise<StoredEvent[]>;
+  /** Hard-deletes archived events whose `completedAt` is older than the retention
+   *  cutoff (currently 60 days). Returns the number of rows removed. */
+  pruneExpiredArchives(accountDid: string): Promise<number>;
   putChallenge(c: AuthChallenge): Promise<void>;
   consumeChallenge(accountDid: string, challenge: string): Promise<boolean>;
 }
+
+export const ARCHIVE_RETENTION_DAYS = 60;
+export const ARCHIVE_RETENTION_MS = ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 let store: Store | null = null;
 

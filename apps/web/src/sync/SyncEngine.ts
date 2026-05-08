@@ -27,9 +27,9 @@ export interface VisibilityHost {
   addListener(fn: () => void): () => void;
 }
 
-export const PUSH_INTERVAL_MS = 600_000;   // 10 minutes
-export const PULL_INTERVAL_MS = 60_000;    // 1 minute
 export const ARCHIVE_CUTOFF_MS = 60 * 24 * 60 * 60 * 1000;
+/** Test/legacy default. Real cadence is now `Prefs.syncIntervalSeconds`. */
+export const DEFAULT_SYNC_INTERVAL_MS = 60_000;
 
 const LS_LAST_SYNCED = 'cornertasks.sync.lastSyncedAt';
 const LS_DEVICE_ID = 'cornertasks.sync.deviceId';
@@ -92,6 +92,12 @@ export interface SyncEngineOptions {
   lastSyncedAt?: LastSyncedAtStorage;
   visibility?: VisibilityHost;
   now?: () => Date;
+  /** User-configured cadence in ms; same value drives push and pull timers. */
+  intervalMs?: () => number;
+  /** Returns true once the user has just (re-)enabled cloud sync. The engine
+   *  consumes the flag exactly once via `clearPendingFullResync`. */
+  pendingFullResync?: () => boolean;
+  clearPendingFullResync?: () => void;
   /** Test seam: replaces window.setInterval / clearInterval. */
   setInterval?: (fn: () => void, ms: number) => unknown;
   clearInterval?: (handle: unknown) => void;
@@ -108,6 +114,9 @@ export class SyncEngine {
   private readonly now: () => Date;
   private readonly setIntervalImpl: (fn: () => void, ms: number) => unknown;
   private readonly clearIntervalImpl: (h: unknown) => void;
+  private readonly intervalMs: () => number;
+  private readonly pendingFullResyncFn: () => boolean;
+  private readonly clearPendingFullResyncFn: () => void;
   readonly authSession: AuthSession;
 
   private pushTimer: unknown = null;
@@ -132,13 +141,20 @@ export class SyncEngine {
         if (typeof window !== 'undefined') window.clearInterval(h as number);
         else clearInterval(h as ReturnType<typeof setInterval>);
       });
+    this.intervalMs = opts.intervalMs ?? (() => DEFAULT_SYNC_INTERVAL_MS);
+    this.pendingFullResyncFn = opts.pendingFullResync ?? (() => false);
+    this.clearPendingFullResyncFn = opts.clearPendingFullResync ?? (() => {});
     this.authSession = new AuthSession(this.identity, this.transport, { now: this.now });
   }
 
   start(): void {
     this.installEventBuilder();
-    void this.flushPushes();
-    void this.pullSince();
+    if (this.pendingFullResyncFn()) {
+      void this.performFullResync().then(() => this.clearPendingFullResyncFn());
+    } else {
+      void this.flushPushes();
+      void this.pullSince();
+    }
     if (!this.visibility.isHidden()) this.scheduleTimers();
     this.removeVisibilityListener = this.visibility.addListener(() => this.onVisibilityChange());
   }
@@ -215,8 +231,45 @@ export class SyncEngine {
       const response = await this.pushWithAuth(toSend);
       const toMark = [...response.accepted, ...response.rejected.map((r) => r.eventId)];
       if (toMark.length > 0) await this.store.markQueueRowsSent(toMark);
-    } catch {
-      // Leave rows pending; retry next tick.
+    } catch (err) {
+      console.warn('[CornerTasks sync] push failed; will retry next tick', err);
+    }
+  }
+
+  /** One-shot reset. Discards every row in the local outbound queue, pulls the
+   *  full state from the backend (since-epoch), then re-enqueues an upsert for
+   *  every local task the server did not return — and pushes the lot. After this
+   *  runs, the cloud holds an up-to-date copy of every live local task. Archived
+   *  tasks completed more than `ARCHIVE_CUTOFF_MS` ago are intentionally left out
+   *  — they are dropped from both ends by the retention policy. */
+  async performFullResync(): Promise<void> {
+    await this.store.clearSyncQueue();
+    this.lastSyncedAt.set(EPOCH_ZERO_ISO);
+    const pulled = await this.pullForResync();
+    const cutoff = this.now().getTime() - ARCHIVE_CUTOFF_MS;
+    for (const snapshot of await this.store.liveSnapshots()) {
+      if (pulled.has(snapshot.taskId)) continue;
+      if (snapshot.completedAt && snapshot.completedAt.getTime() < cutoff) continue;
+      await this.store.enqueueSnapshot(snapshot);
+    }
+    await this.flushPushes();
+  }
+
+  private async pullForResync(): Promise<Set<string>> {
+    const since = this.lastSyncedAt.get() ?? EPOCH_ZERO_ISO;
+    try {
+      const response = await this.pullWithAuth(since);
+      const pulled = new Set<string>();
+      for (const event of response.events) {
+        await this.applyRemote(event);
+        pulled.add(event.taskId);
+      }
+      this.lastSyncedAt.set(response.serverTime);
+      console.info('[CornerTasks sync] resync pull complete', { pulled: pulled.size });
+      return pulled;
+    } catch (err) {
+      console.warn('[CornerTasks sync] resync pull failed; rebuilding queue from local only', err);
+      return new Set();
     }
   }
 
@@ -228,8 +281,8 @@ export class SyncEngine {
         await this.applyRemote(event);
       }
       this.lastSyncedAt.set(response.serverTime);
-    } catch {
-      // Network or auth failure — try again next tick.
+    } catch (err) {
+      console.warn('[CornerTasks sync] pull failed; will retry next tick', err);
     }
   }
 
@@ -309,11 +362,12 @@ export class SyncEngine {
   }
 
   private scheduleTimers(): void {
+    const ms = Math.max(1000, this.intervalMs());
     if (this.pushTimer === null) {
-      this.pushTimer = this.setIntervalImpl(() => { void this.flushPushes(); }, PUSH_INTERVAL_MS);
+      this.pushTimer = this.setIntervalImpl(() => { void this.flushPushes(); }, ms);
     }
     if (this.pullTimer === null) {
-      this.pullTimer = this.setIntervalImpl(() => { void this.pullSince(); }, PULL_INTERVAL_MS);
+      this.pullTimer = this.setIntervalImpl(() => { void this.pullSince(); }, ms);
     }
   }
 

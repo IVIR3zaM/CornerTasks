@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { AccountManager } from '../crypto/AccountManager';
 import { clearRevealCredential, defaultMnemonicChallenge, makeRevealGate } from '../crypto/RevealGate';
-import { Prefs } from '../models/Prefs';
+import { Prefs, SYNC_INTERVAL_MAX_SECONDS, SYNC_INTERVAL_MIN_SECONDS } from '../models/Prefs';
 import { ping, describePingError, isBackendPingError } from '../sync/BackendPing';
-import { fireCloudSyncChanged } from '../sync/SyncEngine';
+import { ensureDeviceId, fireCloudSyncChanged } from '../sync/SyncEngine';
 import { EnableCloudSyncSheet } from './EnableCloudSyncSheet';
 import { QRCodeImage } from './QRCodeImage';
 
@@ -23,6 +23,9 @@ export function SettingsPanel(): JSX.Element {
   const [showMnemonic, setShowMnemonic] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [confirmForget, setConfirmForget] = useState(false);
+  const initialInterval = decomposeInterval(Prefs.syncIntervalSeconds());
+  const [intervalAmount, setIntervalAmount] = useState<number>(initialInterval.amount);
+  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>(initialInterval.unit);
 
   useEffect(() => {
     let mounted = true;
@@ -41,10 +44,37 @@ export function SettingsPanel(): JSX.Element {
   const onEnabled = (url: string): void => {
     Prefs.setCloudSyncEnabled(true);
     Prefs.setBackendURL(url);
+    // Every enable — first time or re-enable — schedules a one-shot full
+    // resync. The engine consumes (and clears) the flag on its next start.
+    Prefs.setPendingFullResync(true);
     setBackendURL(url);
     setCloudSyncEnabled(true);
     setShowEnable(false);
     fireCloudSyncChanged(true);
+  };
+
+  const commitInterval = (amount: number, unit: IntervalUnit): void => {
+    const seconds = clampIntervalSeconds(toSeconds(amount, unit));
+    if (seconds !== Prefs.syncIntervalSeconds()) {
+      Prefs.setSyncIntervalSeconds(seconds);
+      // Engine restart picks up the new cadence without a reload.
+      fireCloudSyncChanged(Prefs.cloudSyncEnabled());
+    }
+  };
+
+  const onIntervalAmount = (raw: string): void => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    const bounded = clampForUnit(n, intervalUnit);
+    setIntervalAmount(bounded);
+    commitInterval(bounded, intervalUnit);
+  };
+
+  const onIntervalUnit = (u: IntervalUnit): void => {
+    const bounded = clampForUnit(intervalAmount, u);
+    setIntervalUnit(u);
+    setIntervalAmount(bounded);
+    commitInterval(bounded, u);
   };
 
   const onDisable = (): void => {
@@ -130,6 +160,32 @@ export function SettingsPanel(): JSX.Element {
               {pingState.kind === 'ok' && <span className="ok-text">reachable</span>}
             </div>
             {pingState.kind === 'failed' && <p className="error-text">{pingState.message}</p>}
+
+            <hr />
+            <label className="field-label">Sync every</label>
+            <div className="modal-row">
+              <input
+                type="number"
+                min={unitMin(intervalUnit)}
+                max={unitMax(intervalUnit)}
+                step={1}
+                value={intervalAmount}
+                onChange={(e) => onIntervalAmount(e.target.value)}
+                style={{ width: 80 }}
+                aria-label="Sync interval amount"
+              />
+              <select
+                value={intervalUnit}
+                onChange={(e) => onIntervalUnit(e.target.value as IntervalUnit)}
+                aria-label="Sync interval unit"
+              >
+                <option value="seconds">sec</option>
+                <option value="minutes">min</option>
+                <option value="hours">hr</option>
+              </select>
+            </div>
+            <p className="muted small">Range: 10 s – 24 h. Applies to both push and pull.</p>
+
             <button type="button" className="btn-text" onClick={onDisable}>Disable cloud sync</button>
           </>
         ) : (
@@ -152,6 +208,9 @@ export function SettingsPanel(): JSX.Element {
             <h2>Account</h2>
             <label className="field-label">DID</label>
             <code className="did-box">{account.did}</code>
+
+            <label className="field-label">Device ID <span className="debug-tag">debug</span></label>
+            <code className="debug-id-block">{ensureDeviceId()}</code>
 
             <details
               open={showMnemonic}
@@ -213,3 +272,26 @@ export function SettingsPanel(): JSX.Element {
     </div>
   );
 }
+
+type IntervalUnit = 'seconds' | 'minutes' | 'hours';
+
+const toSeconds = (amount: number, unit: IntervalUnit): number => {
+  switch (unit) {
+    case 'seconds': return amount;
+    case 'minutes': return amount * 60;
+    case 'hours':   return amount * 3600;
+  }
+};
+
+const decomposeInterval = (s: number): { amount: number; unit: IntervalUnit } => {
+  if (s >= 3600 && s % 3600 === 0) return { amount: Math.min(24, s / 3600), unit: 'hours' };
+  if (s >= 60 && s % 60 === 0)     return { amount: Math.min(59, s / 60),   unit: 'minutes' };
+  return { amount: Math.max(10, Math.min(59, s)), unit: 'seconds' };
+};
+
+const unitMin = (u: IntervalUnit): number => (u === 'seconds' ? 10 : 1);
+const unitMax = (u: IntervalUnit): number => (u === 'hours' ? 24 : 59);
+const clampForUnit = (n: number, u: IntervalUnit): number =>
+  Math.max(unitMin(u), Math.min(unitMax(u), Math.floor(n)));
+const clampIntervalSeconds = (s: number): number =>
+  Math.max(SYNC_INTERVAL_MIN_SECONDS, Math.min(SYNC_INTERVAL_MAX_SECONDS, Math.floor(s)));

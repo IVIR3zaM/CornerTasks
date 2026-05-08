@@ -12,6 +12,8 @@ struct CloudSyncSection: View {
     @State private var showQR = false
     @State private var pingState: PingState = .idle
     @State private var confirmForget = false
+    @State private var syncInterval: SyncIntervalChoice = SyncIntervalChoice.fromSeconds(Prefs.syncIntervalSeconds)
+    @State private var syncIntervalAmount: Int = SyncIntervalChoice.amount(forSeconds: Prefs.syncIntervalSeconds)
 
     enum PingState: Equatable {
         case idle, pinging, ok, failed(String)
@@ -45,6 +47,9 @@ struct CloudSyncSection: View {
                 cloudSyncEnabled = true
                 Prefs.cloudSyncEnabled = true
                 Prefs.backendURL = url
+                // Every enable — first time or re-enable — schedules a one-shot
+                // full resync. The engine consumes (and clears) the flag on start.
+                Prefs.pendingFullResync = true
                 NotificationCenter.default.post(name: .cornerTasksCloudSyncChanged, object: nil)
             }
         }
@@ -118,6 +123,33 @@ struct CloudSyncSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Divider()
+            Text("Sync every").font(.caption.weight(.semibold))
+            HStack(spacing: 6) {
+                Stepper(value: $syncIntervalAmount,
+                        in: syncInterval.range,
+                        step: 1) {
+                    Text("\(syncIntervalAmount)").frame(minWidth: 32, alignment: .leading)
+                }
+                .controlSize(.small)
+                .onChange(of: syncIntervalAmount) { _ in commitSyncInterval() }
+
+                Picker("", selection: $syncInterval) {
+                    ForEach(SyncIntervalChoice.all, id: \.self) { c in
+                        Text(c.label).tag(c)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 200)
+                .onChange(of: syncInterval) { new in
+                    syncIntervalAmount = max(new.range.lowerBound, min(new.range.upperBound, syncIntervalAmount))
+                    commitSyncInterval()
+                }
+            }
+            Text("Range: 10 s – 24 h. Applies to both push and pull.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Button("Disable cloud sync") {
                 cloudSyncEnabled = false
                 Prefs.cloudSyncEnabled = false
@@ -145,6 +177,26 @@ struct CloudSyncSection: View {
                         RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06))
                     )
             }
+
+            HStack(spacing: 4) {
+                Text("Device ID").font(.caption.weight(.semibold))
+                Text("debug")
+                    .font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 4)
+                    .background(Color.primary.opacity(0.08))
+                    .foregroundStyle(.secondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            }
+            Text(Prefs.deviceId)
+                .font(.system(size: 10).monospaced())
+                .foregroundStyle(.secondary)
+                .opacity(0.7)
+                .textSelection(.enabled)
+                .padding(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04))
+                )
 
             DisclosureGroup(isExpanded: Binding(
                 get: { showMnemonic },
@@ -241,6 +293,16 @@ struct CloudSyncSection: View {
         }
     }
 
+    private func commitSyncInterval() {
+        let seconds = syncInterval.toSeconds(amount: syncIntervalAmount)
+        let clamped = max(Prefs.syncIntervalMinSeconds, min(Prefs.syncIntervalMaxSeconds, seconds))
+        if clamped != Prefs.syncIntervalSeconds {
+            Prefs.syncIntervalSeconds = clamped
+            // Engine restart picks up the new cadence without an app relaunch.
+            NotificationCenter.default.post(name: .cornerTasksCloudSyncChanged, object: nil)
+        }
+    }
+
     private func runPing() async {
         guard let did = account.did else { return }
         pingState = .pinging
@@ -250,6 +312,42 @@ struct CloudSyncSection: View {
             Prefs.backendURL = backendURL
         } catch {
             pingState = .failed(Self.describe(error))
+        }
+    }
+
+    /// Three-segment picker: seconds / minutes / hours. The Stepper's range adjusts
+    /// to match each unit so the user can't dial outside the supported window.
+    enum SyncIntervalChoice: Hashable {
+        case seconds, minutes, hours
+        static let all: [SyncIntervalChoice] = [.seconds, .minutes, .hours]
+        var label: String {
+            switch self { case .seconds: return "sec"; case .minutes: return "min"; case .hours: return "hr" }
+        }
+        var range: ClosedRange<Int> {
+            switch self {
+            case .seconds: return 10...59
+            case .minutes: return 1...59
+            case .hours:   return 1...24
+            }
+        }
+        func toSeconds(amount: Int) -> Int {
+            switch self {
+            case .seconds: return amount
+            case .minutes: return amount * 60
+            case .hours:   return amount * 3600
+            }
+        }
+        static func fromSeconds(_ s: Int) -> SyncIntervalChoice {
+            if s >= 3600 && s % 3600 == 0 { return .hours }
+            if s >= 60 && s % 60 == 0 { return .minutes }
+            return .seconds
+        }
+        static func amount(forSeconds s: Int) -> Int {
+            switch fromSeconds(s) {
+            case .seconds: return max(10, min(59, s))
+            case .minutes: return max(1, min(59, s / 60))
+            case .hours:   return max(1, min(24, s / 3600))
+            }
         }
     }
 

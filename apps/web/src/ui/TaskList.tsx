@@ -137,7 +137,11 @@ function SortableRow({
             }}
           />
         ) : (
-          <span className="title" onDoubleClick={() => setEditing(true)}>
+          <span
+            className="title"
+            onDoubleClick={() => setEditing(true)}
+            title={task.title}
+          >
             {task.title}
           </span>
         )}
@@ -174,6 +178,9 @@ function SortableRow({
             {dueLabel(status, task.dueDate)}
           </span>
         )}
+      </div>
+      <div className="task-debug-row">
+        <span className="debug-id" title="Task ID (debug)">{task.id.toLowerCase()}</span>
       </div>
     </div>
   );

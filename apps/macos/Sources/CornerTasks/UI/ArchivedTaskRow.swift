@@ -13,7 +13,9 @@ struct ArchivedTaskRow: View {
 
                 Text(task.title)
                     .font(.system(size: 15, weight: .semibold))
-                    .lineLimit(2)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
 
@@ -33,6 +35,11 @@ struct ArchivedTaskRow: View {
                         DueBadge(due: task.dueDate!, status: DueStatus.of(task.dueDate))
                     }
                 }
+                Text(task.id.uuidString.lowercased())
+                    .font(.system(size: 9).monospaced())
+                    .opacity(0.55)
+                    .textSelection(.enabled)
+                    .help("Task ID (debug)")
             }
             .font(.caption)
             .foregroundStyle(.secondary)

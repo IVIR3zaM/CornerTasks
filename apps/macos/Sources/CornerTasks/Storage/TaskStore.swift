@@ -218,6 +218,69 @@ final class TaskStore: ObservableObject {
     /// Returns the current `completed_at` of the task identified by `taskId`, or nil if
     /// the task is missing or not completed. Used by the sync engine for the 60-day
     /// archive cutoff at push time.
+    /// Hard-deletes every row from `sync_queue`. Used by the full-resync flow when
+    /// the user enables cloud sync — the existing queue (sent or pending) is
+    /// discarded and rebuilt from the local task table.
+    func clearSyncQueue() {
+        sqlite3_exec(db, "DELETE FROM sync_queue", nil, nil, nil)
+    }
+
+    /// Returns every non-deleted task as a snapshot, sorted by `created_at` ASC.
+    /// The full-resync flow uses this to rebuild the outbound queue.
+    func liveSnapshots() -> [TaskMutationSnapshot] {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        let sql = "SELECT id, title, created_at, completed_at, due_date, ord, updated_at, deleted_at FROM tasks WHERE deleted_at IS NULL ORDER BY created_at ASC"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+
+        var out: [TaskMutationSnapshot] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let idC = sqlite3_column_text(stmt, 0),
+                  let id = UUID(uuidString: String(cString: idC)) else { continue }
+            let title = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 2))
+            let completedAt: Date? = sqlite3_column_type(stmt, 3) == SQLITE_NULL
+                ? nil : Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
+            let dueDate: Date? = sqlite3_column_type(stmt, 4) == SQLITE_NULL
+                ? nil : Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
+            let order = Int(sqlite3_column_int64(stmt, 5))
+            let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6))
+            out.append(TaskMutationSnapshot(
+                taskId: id,
+                op: "upsert",
+                title: title,
+                createdAt: createdAt,
+                completedAt: completedAt,
+                dueDate: dueDate,
+                order: order,
+                updatedAt: updatedAt,
+                deletedAt: nil
+            ))
+        }
+        return out
+    }
+
+    /// Builder used by the full-resync flow to enqueue a row directly from a snapshot,
+    /// bypassing the normal mutation path. The caller is responsible for skipping
+    /// archived snapshots past the cutoff.
+    func enqueueSnapshot(_ snapshot: TaskMutationSnapshot) {
+        guard let builder = eventBuilder else { return }
+        guard let event = builder(snapshot) else { return }
+        exec("INSERT INTO sync_queue (event_id, task_id, op, payload, created_at, sent_at) VALUES (?, ?, ?, ?, ?, NULL)") { stmt in
+            sqlite3_bind_text(stmt, 1, event.eventId, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, snapshot.taskId.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, snapshot.op, -1, SQLITE_TRANSIENT)
+            _ = event.payloadJSON.withUnsafeBytes { rawBuf -> Int32 in
+                if let base = rawBuf.baseAddress {
+                    return sqlite3_bind_blob(stmt, 4, base, Int32(event.payloadJSON.count), SQLITE_TRANSIENT)
+                } else {
+                    return sqlite3_bind_zeroblob(stmt, 4, 0)
+                }
+            }
+            sqlite3_bind_double(stmt, 5, snapshot.updatedAt.timeIntervalSince1970)
+        }
+    }
+
     func taskCompletedAt(taskId: String) -> Date? {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }

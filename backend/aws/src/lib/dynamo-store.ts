@@ -5,9 +5,9 @@ import {
   QueryCommand,
   DeleteCommand
 } from '@aws-sdk/lib-dynamodb';
-import type { AuthChallenge, Store, StoredEvent } from './db';
+import { ARCHIVE_RETENTION_MS, type AuthChallenge, type Store, type StoredEvent } from './db';
 
-const ARCHIVE_CUTOFF_MS = 60 * 24 * 60 * 60 * 1000;
+const ARCHIVE_CUTOFF_MS = ARCHIVE_RETENTION_MS;
 
 export function dynamoStore(): Store {
   const eventsTable = process.env.EVENTS_TABLE;
@@ -78,6 +78,32 @@ export function dynamoStore(): Store {
         return a.eventId < b.eventId ? -1 : a.eventId > b.eventId ? 1 : 0;
       });
       return results;
+    },
+
+    async pruneExpiredArchives(accountDid) {
+      const cutoff = new Date(Date.now() - ARCHIVE_CUTOFF_MS).toISOString();
+      let removed = 0;
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+      do {
+        const out = await client.send(
+          new QueryCommand({
+            TableName: eventsTable,
+            KeyConditionExpression: 'pk = :pk',
+            FilterExpression: 'attribute_exists(archivedCompletedAt) AND archivedCompletedAt < :cutoff',
+            ExpressionAttributeValues: { ':pk': `ACCOUNT#${accountDid}`, ':cutoff': cutoff },
+            ExclusiveStartKey: exclusiveStartKey
+          })
+        );
+        for (const item of out.Items ?? []) {
+          const row = item as { pk: string; sk: string };
+          await client.send(
+            new DeleteCommand({ TableName: eventsTable, Key: { pk: row.pk, sk: row.sk } })
+          );
+          removed += 1;
+        }
+        exclusiveStartKey = out.LastEvaluatedKey;
+      } while (exclusiveStartKey);
+      return removed;
     },
 
     async putChallenge(c: AuthChallenge) {

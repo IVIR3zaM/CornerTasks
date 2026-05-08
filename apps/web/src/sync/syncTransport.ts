@@ -79,12 +79,17 @@ const mapHttpError = (status: number, body: unknown): SyncTransportError => {
 export class FetchTransport implements SyncTransport {
   private readonly baseURL: string;
 
-  constructor(apiUrl: string, private readonly fetcher: typeof fetch = fetch) {
+  private readonly fetcher: typeof fetch;
+
+  constructor(apiUrl: string, fetcher?: typeof fetch) {
+    // `window.fetch` must be invoked with `window` as its receiver. Storing it
+    // as a class field and calling `this.fetcher(...)` rebinds `this` to the
+    // class instance and triggers "Illegal invocation". Bind once at construction.
+    this.fetcher = fetcher ?? fetch.bind(globalThis);
     const trimmed = apiUrl.trim();
     const stripped = stripTrailingSlash(trimmed);
     if (stripped.length === 0) throw { kind: 'invalidURL' } as SyncTransportError;
     try {
-      // Validate by constructing a URL.
       new URL(stripped);
     } catch {
       throw { kind: 'invalidURL' } as SyncTransportError;

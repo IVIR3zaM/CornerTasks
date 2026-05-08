@@ -186,9 +186,9 @@ body {
   min-width: 0;
   font-weight: 600;
   font-size: 15px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .title.archived { font-weight: 600; color: var(--text); }
 
@@ -326,6 +326,16 @@ body {
   font-weight: 600;
   border-radius: 6px;
 }
+.btn-primary:disabled {
+  background: var(--surface-strong);
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.btn-text:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 
 /* ---------- Settings ---------- */
 .settings {
@@ -384,6 +394,42 @@ body {
   word-break: break-all;
   user-select: all;
 }
+/* Debug-only identifiers — deliberately low-contrast so they don't compete
+   with the user's actual data. */
+.task-debug-row {
+  margin-top: 2px;
+  padding-left: 30px;
+}
+.debug-id {
+  font: 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted, #9ca3af);
+  opacity: 0.55;
+  user-select: all;
+  word-break: break-all;
+}
+.debug-id-block {
+  display: block;
+  padding: 4px 8px;
+  background: var(--surface-strong);
+  border-radius: 6px;
+  font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted, #9ca3af);
+  opacity: 0.7;
+  word-break: break-all;
+  user-select: all;
+}
+.debug-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: 4px;
+  background: var(--surface-strong);
+  color: var(--muted, #9ca3af);
+  opacity: 0.7;
+}
 .settings .mnemonic-box {
   margin: 6px 0;
   padding: 8px;
@@ -408,6 +454,7 @@ body {
   font-size: 12px;
   margin: 8px 0;
 }
+.settings .check-row.disabled { opacity: 0.5; cursor: not-allowed; }
 .settings .confirm-block { margin-top: 8px; }
 
 .qr-block {

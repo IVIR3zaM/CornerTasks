@@ -14,8 +14,6 @@ import Foundation
 /// The 60-day archive cutoff is enforced at flush time: any pending row whose task has
 /// `completed_at < now - 60 d` is marked sent without being POSTed.
 final class SyncEngine {
-    static let pushInterval: TimeInterval = 600   // 10 minutes
-    static let pullInterval: TimeInterval = 60    // 1 minute
     static let archiveCutoff: TimeInterval = 60 * 24 * 60 * 60  // 60 days
 
     private let store: TaskStore
@@ -26,6 +24,13 @@ final class SyncEngine {
     private let deviceId: String
     private let now: () -> Date
     private let lastSyncedAtStorage: LastSyncedAtStorage
+    /// Reads the user-configured sync cadence, in seconds. Defaults to `Prefs.syncIntervalSeconds`.
+    private let intervalSeconds: () -> TimeInterval
+    /// Set + cleared by the engine. Persisted in `Prefs.pendingFullResync` for callers
+    /// that want to trigger a resync on the next start (typically after the user
+    /// (re-)enables cloud sync).
+    private let pendingFullResync: () -> Bool
+    private let clearPendingFullResync: () -> Void
 
     private var pushTimer: Timer?
     private var pullTimer: Timer?
@@ -36,6 +41,9 @@ final class SyncEngine {
          encryptionKey: SymmetricKey,
          deviceId: String,
          lastSyncedAt: LastSyncedAtStorage = UserDefaultsLastSyncedAt(),
+         intervalSeconds: @escaping () -> TimeInterval = { TimeInterval(Prefs.syncIntervalSeconds) },
+         pendingFullResync: @escaping () -> Bool = { Prefs.pendingFullResync },
+         clearPendingFullResync: @escaping () -> Void = { Prefs.pendingFullResync = false },
          now: @escaping () -> Date = Date.init) {
         self.store = store
         self.transport = transport
@@ -44,6 +52,9 @@ final class SyncEngine {
         self.deviceId = deviceId
         self.now = now
         self.lastSyncedAtStorage = lastSyncedAt
+        self.intervalSeconds = intervalSeconds
+        self.pendingFullResync = pendingFullResync
+        self.clearPendingFullResync = clearPendingFullResync
         self.auth = AuthSession(identity: identity, transport: transport, now: now)
     }
 
@@ -52,11 +63,20 @@ final class SyncEngine {
 
     func start() {
         installEnqueuer()
-        Task { await self.flushPushes() }
-        let push = Timer.scheduledTimer(withTimeInterval: Self.pushInterval, repeats: true) { [weak self] _ in
+        let interval = max(TimeInterval(Prefs.syncIntervalMinSeconds), intervalSeconds())
+        let needsResync = pendingFullResync()
+        Task {
+            if needsResync {
+                await self.performFullResync()
+                self.clearPendingFullResync()
+            } else {
+                await self.flushPushes()
+            }
+        }
+        let push = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { await self?.flushPushes() }
         }
-        let pull = Timer.scheduledTimer(withTimeInterval: Self.pullInterval, repeats: true) { [weak self] _ in
+        let pull = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { await self?.pullSince() }
         }
         pushTimer = push
@@ -106,6 +126,41 @@ final class SyncEngine {
             }
         } catch {
             // Leave rows pending; retry next tick.
+        }
+    }
+
+    /// One-shot reset. Discards every row in the local outbound queue, pulls the
+    /// full state from the backend (since-epoch), then re-enqueues an upsert for
+    /// every local task the server did not return — and pushes the lot. After this
+    /// runs, the cloud holds an up-to-date copy of every live local task. Archived
+    /// tasks completed more than `archiveCutoff` seconds ago are intentionally
+    /// left out; they are dropped from both ends by the retention policy.
+    func performFullResync() async {
+        store.clearSyncQueue()
+        lastSyncedAtStorage.value = ISO8601.format(Date(timeIntervalSince1970: 0))
+        let pulled = await pullForResync()
+        let cutoff = now().addingTimeInterval(-Self.archiveCutoff)
+        for snapshot in store.liveSnapshots() {
+            if pulled.contains(snapshot.taskId.uuidString) { continue }
+            if let completed = snapshot.completedAt, completed < cutoff { continue }
+            store.enqueueSnapshot(snapshot)
+        }
+        await flushPushes()
+    }
+
+    private func pullForResync() async -> Set<String> {
+        let since = lastSyncedAtStorage.value ?? defaultSince()
+        do {
+            let response = try await pullWithAuth(since: since)
+            var pulled: Set<String> = []
+            for event in response.events {
+                applyRemote(event)
+                pulled.insert(event.taskId)
+            }
+            lastSyncedAtStorage.value = response.serverTime
+            return pulled
+        } catch {
+            return []
         }
     }
 

@@ -54,6 +54,25 @@ git push origin v0.2.0
 
 Bump the version in `AppBundle/Info.plist` (`CFBundleVersion` and `CFBundleShortVersionString`), the top-level README "Version" line, and the changelog table before tagging.
 
+## Reset to a clean slate
+
+State persists in three places. To wipe everything and start as if the app were never installed, quit it (status bar → **Quit**) and run [`vanish.sh`](vanish.sh):
+
+```sh
+./vanish.sh
+```
+
+It removes:
+
+| Layer        | Location                                                       |
+| ------------ | -------------------------------------------------------------- |
+| UserDefaults | `~/Library/Preferences/CornerTasks.plist` (cloud-sync toggle, backend URL, deviceId, sync interval, dock pref) |
+| Local DB     | `~/Library/Application Support/CornerTasks/` (tasks + outbound queue) |
+| Keychain     | login-keychain item with service `com.cornertasks.mnemonic`     |
+| Window state | `~/Library/Saved Application State/CornerTasks.savedState`      |
+
+Re-launching afterwards boots a fresh install: cloud sync off, no key, empty task list. **Note:** this only resets the local device — if the same mnemonic has been pushed to your AWS backend, re-importing it will pull those tasks back. To start server-side fresh, redeploy the backend with empty DynamoDB tables.
+
 ## Layout
 
 ```

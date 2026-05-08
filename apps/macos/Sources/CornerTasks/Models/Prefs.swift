@@ -13,6 +13,13 @@ enum Prefs {
     static let cloudSyncEnabledKey = "cloudSyncEnabled"
     static let backendURLKey = "backendURL"
     static let deviceIdKey = "cornertasks.sync.deviceId"
+    static let syncIntervalSecondsKey = "cornertasks.sync.intervalSeconds"
+    static let pendingFullResyncKey = "cornertasks.sync.pendingFullResync"
+
+    /// Allowed range for the user-controlled sync timing.
+    static let syncIntervalMinSeconds: Int = 10           // 10 s
+    static let syncIntervalMaxSeconds: Int = 24 * 60 * 60 // 24 h
+    static let syncIntervalDefaultSeconds: Int = 60       // 1 min
 
     /// Stable random UUID generated once on first sync. Used as `deviceId` in §3 events.
     static var deviceId: String {
@@ -38,6 +45,29 @@ enum Prefs {
     static var cloudSyncEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: cloudSyncEnabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: cloudSyncEnabledKey) }
+    }
+
+    /// Single user-controlled timer cadence used for both push and pull. Clamped to
+    /// [10 s, 24 h]. Changing it posts `cornerTasksCloudSyncChanged` so the engine
+    /// can reschedule its timers without an app restart.
+    static var syncIntervalSeconds: Int {
+        get {
+            let raw = UserDefaults.standard.object(forKey: syncIntervalSecondsKey) as? Int
+            let v = raw ?? syncIntervalDefaultSeconds
+            return max(syncIntervalMinSeconds, min(syncIntervalMaxSeconds, v))
+        }
+        set {
+            let clamped = max(syncIntervalMinSeconds, min(syncIntervalMaxSeconds, newValue))
+            UserDefaults.standard.set(clamped, forKey: syncIntervalSecondsKey)
+        }
+    }
+
+    /// True between the moment the user clicks "Enable cloud sync" and the moment the
+    /// engine has finished its one-shot full resync. Survives a process restart so
+    /// the resync runs on next launch if the app was killed mid-flight.
+    static var pendingFullResync: Bool {
+        get { UserDefaults.standard.bool(forKey: pendingFullResyncKey) }
+        set { UserDefaults.standard.set(newValue, forKey: pendingFullResyncKey) }
     }
 
     static var backendURL: String? {

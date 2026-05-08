@@ -40,6 +40,18 @@ export function memoryStore(): Store & {
       });
       return out;
     },
+    async pruneExpiredArchives(accountDid) {
+      const cutoff = Date.now() - ARCHIVE_CUTOFF_MS;
+      let removed = 0;
+      for (const [k, ev] of events) {
+        if (ev.accountDid !== accountDid) continue;
+        if (ev.archivedCompletedAt && Date.parse(ev.archivedCompletedAt) < cutoff) {
+          events.delete(k);
+          removed += 1;
+        }
+      }
+      return removed;
+    },
     async putChallenge(c) {
       challenges.set(chalKey(c.accountDid, c.challenge), { ...c });
     },

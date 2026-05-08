@@ -38,7 +38,8 @@ struct ActiveTaskRow: View {
                 } else {
                     Text(task.title)
                         .font(.system(size: 15, weight: .medium))
-                        .lineLimit(2)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                         .onTapGesture(count: 2) { startEditing() }
@@ -71,6 +72,14 @@ struct ActiveTaskRow: View {
                 }
             }
             .padding(.leading, 28)
+
+            Text(task.id.uuidString.lowercased())
+                .font(.system(size: 9).monospaced())
+                .foregroundStyle(.secondary)
+                .opacity(0.5)
+                .textSelection(.enabled)
+                .help("Task ID (debug)")
+                .padding(.leading, 28)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 12)

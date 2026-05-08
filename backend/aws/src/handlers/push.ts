@@ -40,6 +40,15 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     else rejected.push({ eventId: ev.eventId, reason: 'stale' });
   }
 
+  // Opportunistic retention sweep: archived events past the retention window are
+  // removed for this account on every push. Cheap because writes are infrequent
+  // and the partition is bounded by per-account event count.
+  try {
+    await getStore().pruneExpiredArchives(parsed.data.accountDid);
+  } catch {
+    // Cleanup failure must not fail the push — rows simply linger until next attempt.
+  }
+
   const resp: PushResponse = { accepted, rejected };
   return json(200, resp);
 }

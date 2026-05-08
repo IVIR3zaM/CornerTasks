@@ -76,6 +76,9 @@ export function ArchiveList({ tasks, store, onChanged }: Props) {
                   </span>
                 </div>
               )}
+              <div className="task-debug-row">
+                <span className="debug-id" title="Task ID (debug)">{t.id.toLowerCase()}</span>
+              </div>
             </div>
           </div>
         );

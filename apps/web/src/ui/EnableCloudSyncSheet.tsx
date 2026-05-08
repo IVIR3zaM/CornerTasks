@@ -3,6 +3,7 @@ import { AccountManager, InvalidMnemonicError } from '../crypto/AccountManager';
 import { QRCodeImage } from './QRCodeImage';
 import { QRScanner } from './QRScanner';
 import { Prefs } from '../models/Prefs';
+import { describePingError, isBackendPingError, ping } from '../sync/BackendPing';
 
 type Step = 'chooser' | 'generated' | 'paste' | 'scan';
 
@@ -24,6 +25,33 @@ export function EnableCloudSyncSheet({ account, onEnabled, onCancel }: Props): J
   const [apiUrl, setApiUrl] = useState(Prefs.backendURL() ?? '');
   const [did, setDid] = useState<string | null>(account.did);
   const [imported, setImported] = useState(false);
+  const [urlTested, setUrlTested] = useState<{ url: string } | null>(null);
+  const [urlTesting, setUrlTesting] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
+
+  const onUrlChange = (next: string): void => {
+    setApiUrl(next);
+    // Any edit invalidates a previous successful test.
+    setUrlTested(null);
+    setUrlError(null);
+  };
+
+  const testBackend = async (): Promise<void> => {
+    if (!account.did) return;
+    setUrlError(null);
+    setUrlTesting(true);
+    try {
+      await ping(apiUrl, account.did);
+      setUrlTested({ url: apiUrl.trim() });
+    } catch (e) {
+      setUrlTested(null);
+      setUrlError(isBackendPingError(e) ? describePingError(e) : `Failed: ${String(e)}`);
+    } finally {
+      setUrlTesting(false);
+    }
+  };
+
+  const urlIsTested = (): boolean => urlTested !== null && urlTested.url === apiUrl.trim();
 
   const generate = async (): Promise<void> => {
     try {
@@ -72,6 +100,7 @@ export function EnableCloudSyncSheet({ account, onEnabled, onCancel }: Props): J
 
   const canCommit = (): boolean => {
     if (!account.hasKey || apiUrl.trim().length === 0) return false;
+    if (!urlIsTested()) return false;
     if (step === 'generated') return backedUp;
     if (step === 'paste') return imported && mergeAck;
     return false;
@@ -154,7 +183,7 @@ export function EnableCloudSyncSheet({ account, onEnabled, onCancel }: Props): J
                 <span className="muted small">DID: {did}</span>
               ) : null}
             </div>
-            <label className="check-row">
+            <label className={`check-row${imported ? '' : ' disabled'}`}>
               <input
                 type="checkbox"
                 checked={mergeAck}
@@ -163,6 +192,9 @@ export function EnableCloudSyncSheet({ account, onEnabled, onCancel }: Props): J
               />
               I understand my local tasks will be merged into this account.
             </label>
+            {!imported && (
+              <p className="muted small">Validate the 12 words above to enable this checkbox.</p>
+            )}
             {backendField()}
             {actionsRow()}
           </div>
@@ -191,9 +223,23 @@ export function EnableCloudSyncSheet({ account, onEnabled, onCancel }: Props): J
           spellCheck={false}
           placeholder="https://…execute-api…amazonaws.com/Prod"
           value={apiUrl}
-          onChange={(e) => setApiUrl(e.target.value)}
+          onChange={(e) => onUrlChange(e.target.value)}
         />
-        <p className="muted small">Paste the ApiUrl from your own backend deployment (see backend/aws/README.md).</p>
+        <div className="modal-row">
+          <button
+            type="button"
+            className="btn-text"
+            disabled={apiUrl.trim().length === 0 || urlTesting}
+            onClick={testBackend}
+          >
+            {urlTesting ? 'Testing…' : 'Test'}
+          </button>
+          {urlIsTested() && <span className="ok-text">reachable</span>}
+          {urlError && <span className="error-text">{urlError}</span>}
+        </div>
+        <p className="muted small">
+          You must Test the URL before enabling sync. Paste the ApiUrl from your own backend deployment (see backend/aws/README.md).
+        </p>
       </div>
     );
   }

@@ -5,6 +5,12 @@ import { TaskList } from './TaskList';
 import { ArchiveList } from './ArchiveList';
 import { SettingsPanel } from './SettingsPanel';
 import { GearIcon, CloseIcon, PlusIcon } from './icons';
+import { Prefs } from '../models/Prefs';
+import { AccountManager } from '../crypto/AccountManager';
+import { encryptionKeyBytes } from '../crypto/keys';
+import { toSeed } from '../crypto/mnemonic';
+import { FetchTransport } from '../sync/syncTransport';
+import { ensureDeviceId, SyncEngine, CLOUD_SYNC_CHANGED_EVENT } from '../sync/SyncEngine';
 
 type Tab = 'tasks' | 'archive';
 
@@ -39,8 +45,65 @@ export function App() {
   };
 
   useEffect(() => {
-    if (store) void refresh(store);
+    if (!store) return;
+    void refresh(store);
+    return store.subscribe(() => { void refresh(store); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store]);
+
+  useEffect(() => {
+    if (!store) return;
+    let engine: SyncEngine | null = null;
+
+    const startIfEnabled = async (): Promise<void> => {
+      engine?.stop();
+      engine = null;
+      if (!Prefs.cloudSyncEnabled()) {
+        console.info('[CornerTasks sync] cloud sync disabled; engine not started');
+        return;
+      }
+      const apiUrl = Prefs.backendURL();
+      if (!apiUrl) {
+        console.warn('[CornerTasks sync] cloud sync enabled but no backend URL set');
+        return;
+      }
+      try {
+        const account = await AccountManager.open();
+        if (!account.identity || !account.mnemonic) {
+          console.warn('[CornerTasks sync] no mnemonic stored; engine not started');
+          return;
+        }
+        const transport = new FetchTransport(apiUrl);
+        const seed = await toSeed(account.mnemonic);
+        const key = await encryptionKeyBytes(seed);
+        engine = new SyncEngine({
+          store,
+          transport,
+          identity: account.identity,
+          encryptionKey: key,
+          deviceId: ensureDeviceId(),
+          intervalMs: () => Prefs.syncIntervalSeconds() * 1000,
+          pendingFullResync: () => Prefs.pendingFullResync(),
+          clearPendingFullResync: () => Prefs.setPendingFullResync(false),
+        });
+        engine.start();
+        console.info('[CornerTasks sync] engine started', {
+          intervalSec: Prefs.syncIntervalSeconds(),
+          pendingFullResync: Prefs.pendingFullResync(),
+          backend: apiUrl,
+        });
+      } catch (err) {
+        console.error('[CornerTasks sync] engine start failed', err);
+      }
+    };
+
+    void startIfEnabled();
+    const onChange = (): void => { void startIfEnabled(); };
+    window.addEventListener(CLOUD_SYNC_CHANGED_EVENT, onChange);
+    return () => {
+      window.removeEventListener(CLOUD_SYNC_CHANGED_EVENT, onChange);
+      engine?.stop();
+    };
   }, [store]);
 
   if (openError) return <div className="app"><div className="empty">Could not open local storage: {openError}</div></div>;

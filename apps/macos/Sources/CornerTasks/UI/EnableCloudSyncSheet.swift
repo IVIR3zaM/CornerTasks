@@ -21,6 +21,15 @@ struct EnableCloudSyncSheet: View {
     @State private var apiUrl = Prefs.backendURL ?? ""
     @State private var mergeAcknowledged = false
     @State private var ready = false
+    @State private var imported = false
+    @State private var testedUrl: String? = nil
+    @State private var testing = false
+    @State private var testError: String? = nil
+
+    private var urlIsTested: Bool {
+        guard let t = testedUrl else { return false }
+        return t == apiUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -157,10 +166,14 @@ struct EnableCloudSyncSheet: View {
                 .background(
                     RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06))
                 )
+                .onChange(of: importInput) { _ in
+                    // Any edit invalidates a previous successful validation.
+                    imported = false
+                }
 
             if let err = importError {
                 Text(err).font(.caption).foregroundStyle(.red)
-            } else if let did = account.did {
+            } else if imported, let did = account.did {
                 Text("DID: \(did)").font(.caption.monospaced()).foregroundStyle(.secondary)
             }
 
@@ -173,6 +186,13 @@ struct EnableCloudSyncSheet: View {
             Toggle("I understand my local tasks will be merged into this account.", isOn: $mergeAcknowledged)
                 .toggleStyle(.checkbox)
                 .font(.caption)
+                .disabled(!imported)
+
+            if !imported {
+                Text("Validate the 12 words above to enable this checkbox.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -184,9 +204,35 @@ struct EnableCloudSyncSheet: View {
             TextField("https://…execute-api…amazonaws.com/Prod", text: $apiUrl)
                 .textFieldStyle(.roundedBorder)
                 .font(.caption.monospaced())
-            Text("Paste the ApiUrl from your own backend deployment (see backend/aws/README.md).")
+                .onChange(of: apiUrl) { _ in
+                    // Any edit invalidates a previous successful test.
+                    testedUrl = nil
+                    testError = nil
+                }
+
+            HStack(spacing: 8) {
+                Button(testing ? "Testing…" : "Test") { testBackend() }
+                    .controlSize(.small)
+                    .disabled(apiUrl.trimmingCharacters(in: .whitespaces).isEmpty || testing)
+
+                if urlIsTested {
+                    Label("reachable", systemImage: "checkmark.circle.fill")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+                if testing { ProgressView().controlSize(.small) }
+                Spacer()
+            }
+
+            if let err = testError {
+                Text(err).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("You must Test the URL before enabling sync. Paste the ApiUrl from your own backend deployment (see backend/aws/README.md).")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -194,9 +240,10 @@ struct EnableCloudSyncSheet: View {
 
     private var canCommit: Bool {
         guard account.hasKey, !apiUrl.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        guard urlIsTested else { return false }
         switch step {
         case .generated: return backedUp
-        case .importing: return mergeAcknowledged
+        case .importing: return imported && mergeAcknowledged
         case .chooser: return false
         }
     }
@@ -214,10 +261,34 @@ struct EnableCloudSyncSheet: View {
         importError = nil
         do {
             _ = try account.importMnemonic(importInput)
+            imported = true
         } catch AccountError.invalidMnemonic {
+            imported = false
             importError = "That doesn't look like a valid 12-word BIP-39 mnemonic."
         } catch {
+            imported = false
             importError = "Could not import: \(error)"
+        }
+    }
+
+    private func testBackend() {
+        guard let did = account.did else { return }
+        testError = nil
+        testing = true
+        Task {
+            do {
+                try await BackendPing.ping(apiUrl: apiUrl, accountDid: did)
+                await MainActor.run {
+                    testedUrl = apiUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+                    testing = false
+                }
+            } catch {
+                await MainActor.run {
+                    testedUrl = nil
+                    testError = CloudSyncSection.describe(error)
+                    testing = false
+                }
+            }
         }
     }
 

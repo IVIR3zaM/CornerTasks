@@ -121,8 +121,20 @@ export class TaskStore {
   eventBuilder: EventBuilder | null = null;
 
   private readonly lastEventIdByTask = new Map<string, string>();
+  private readonly listeners = new Set<() => void>();
 
   private constructor(private db: IDBDatabase) {}
+
+  /** Subscribe to mutation notifications. Fires after every local or remote change.
+   *  Returns an unsubscribe function. */
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => { this.listeners.delete(fn); };
+  }
+
+  private notify(): void {
+    for (const fn of this.listeners) fn();
+  }
 
   static async open(name: string = DB_NAME): Promise<TaskStore> {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -186,12 +198,14 @@ export class TaskStore {
       tx.objectStore(STORE).add(stored);
     });
     await this.enqueue(item.id, 'upsert');
+    this.notify();
     return item;
   }
 
   async complete(id: string): Promise<void> {
     await this.update(id, (s) => ({ ...s, completedAt: Date.now() }));
     await this.enqueue(id, 'upsert');
+    this.notify();
   }
 
   async updateTitle(id: string, title: string): Promise<void> {
@@ -199,11 +213,13 @@ export class TaskStore {
     if (!trimmed) return;
     await this.update(id, (s) => ({ ...s, title: trimmed }));
     await this.enqueue(id, 'upsert');
+    this.notify();
   }
 
   async setDueDate(id: string, due: Date | null): Promise<void> {
     await this.update(id, (s) => ({ ...s, dueDate: due ? due.getTime() : null }));
     await this.enqueue(id, 'upsert');
+    this.notify();
   }
 
   async deleteArchived(id: string): Promise<void> {
@@ -211,6 +227,7 @@ export class TaskStore {
     const now = Date.now();
     await this.update(id, (s) => ({ ...s, deletedAt: now }));
     await this.enqueue(id, 'delete');
+    this.notify();
   }
 
   async moveActive(orderedIds: string[]): Promise<void> {
@@ -230,6 +247,7 @@ export class TaskStore {
       tx.onabort = () => reject(tx.error);
     });
     for (const id of orderedIds) await this.enqueue(id, 'upsert');
+    this.notify();
   }
 
   // MARK: - Sync queue support
@@ -264,6 +282,58 @@ export class TaskStore {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  /** Hard-deletes every row from the local outbound queue. Used by the full
+   *  resync flow when the user enables cloud sync. */
+  async clearSyncQueue(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const tx = this.db.transaction(QUEUE, 'readwrite');
+      tx.objectStore(QUEUE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  /** Snapshots of every non-deleted task, used by the resync flow to rebuild the
+   *  outbound queue without going through the normal mutation path. */
+  async liveSnapshots(): Promise<TaskMutationSnapshot[]> {
+    const rows = await this.allStored();
+    return rows
+      .filter((r) => r.deletedAt === null)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((s) => ({
+        taskId: s.id,
+        op: 'upsert',
+        title: s.title,
+        createdAt: new Date(s.createdAt),
+        completedAt: s.completedAt === null ? null : new Date(s.completedAt),
+        dueDate: s.dueDate === null ? null : new Date(s.dueDate),
+        order: s.order,
+        updatedAt: new Date(s.updatedAt),
+        deletedAt: null,
+      }));
+  }
+
+  /** Builder used by the full-resync flow to enqueue a row directly from a snapshot.
+   *  The caller is responsible for skipping archived snapshots past the cutoff. */
+  async enqueueSnapshot(snapshot: TaskMutationSnapshot): Promise<void> {
+    const builder = this.eventBuilder;
+    if (!builder) return;
+    const event = await builder(snapshot);
+    if (!event) return;
+    const row: QueueRowRecord = {
+      eventId: event.eventId,
+      taskId: snapshot.taskId,
+      op: snapshot.op,
+      payloadJSON: event.payloadJSON,
+      createdAt: snapshot.updatedAt.getTime(),
+      sentAt: null,
+    };
+    await this.runWriteTx(async (tx) => {
+      tx.objectStore(QUEUE).add(row);
     });
   }
 
@@ -303,6 +373,7 @@ export class TaskStore {
       tx.objectStore(STORE).put(row);
     });
     this.lastEventIdByTask.set(args.taskId, args.eventId);
+    this.notify();
   }
 
   async applyRemoteDelete(args: { taskId: string; updatedAt: Date; eventId: string }): Promise<void> {
@@ -327,6 +398,7 @@ export class TaskStore {
       tx.objectStore(STORE).put(row);
     });
     this.lastEventIdByTask.set(args.taskId, args.eventId);
+    this.notify();
   }
 
   // MARK: - Internals
