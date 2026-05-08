@@ -4,6 +4,8 @@
 import type { SyncEvent } from '../types/api';
 import { dynamoStore } from './dynamo-store';
 
+export { ARCHIVE_RETENTION_DAYS, ARCHIVE_RETENTION_MS } from './archive-retention';
+
 export interface StoredEvent extends SyncEvent {
   archivedCompletedAt?: string | null;
 }
@@ -23,9 +25,6 @@ export interface Store {
   putChallenge(c: AuthChallenge): Promise<void>;
   consumeChallenge(accountDid: string, challenge: string): Promise<boolean>;
 }
-
-export const ARCHIVE_RETENTION_DAYS = 60;
-export const ARCHIVE_RETENTION_MS = ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 let store: Store | null = null;
 

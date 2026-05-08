@@ -49,7 +49,7 @@ Cleartext fields:
 | `accountDid` | `did:key:...` string       | Account identifier (§1). |
 | `deviceId`   | UUID v4 string             | Random per device, generated on first launch and stored locally. Used for tie-breaking and debugging only. |
 | `eventId`    | UUID v4 string             | Random per event. Used for idempotency and conflict tie-break. |
-| `taskId`     | UUID v4 string             | Random — leaks no information about the user's tasks. Stable across edits to the same task. |
+| `taskId`     | UUID v4 string, **canonical lowercase** | Random — leaks no information about the user's tasks. Stable across edits to the same task. MUST be the canonical lowercase RFC 4122 form (e.g. `a4b2c1d0-1111-2222-3333-444455556666`). Clients MUST lowercase before emitting events and SHOULD lowercase on receipt for backwards-compat with v0.2.0-pre clients that emitted uppercase. |
 | `updatedAt`  | ISO 8601 string, UTC, ms   | Wall-clock time on the originating device when the mutation happened. Used for last-writer-wins (§5). |
 | `op`         | `"upsert"` \| `"delete"`   | Mutation kind. `delete` events have an empty plaintext object inside `ciphertext`. |
 | `ciphertext` | base64url string           | AES-256-GCM ciphertext + auth tag of the encrypted payload (§4). |

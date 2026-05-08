@@ -16,6 +16,18 @@ import Foundation
 final class SyncEngine {
     static let archiveCutoff: TimeInterval = 60 * 24 * 60 * 60  // 60 days
 
+    /// Interim fix for the pull-cursor race: events whose client-set `updatedAt`
+    /// is older than the server's `serverTime` at our last pull but which arrive
+    /// at the server *after* that pull would otherwise be lost forever, since the
+    /// next pull would filter them out with `updatedAt >= since`. We rewind
+    /// `lastSyncedAt` by `cursorLookback` on every advance so those events come
+    /// back on the next round. `applyRemote` is idempotent under last-writer-wins,
+    /// so the redelivered events are absorbed harmlessly. Replace this with a
+    /// server-assigned monotonic cursor in a follow-up iteration; see README
+    /// "Known limitations". 5 minutes covers normal skew + the longest sync
+    /// interval users are likely to pick (see `Prefs.syncIntervalMaxSeconds`).
+    static let cursorLookback: TimeInterval = 5 * 60
+
     private let store: TaskStore
     private let transport: SyncTransport
     private let auth: AuthSession
@@ -63,7 +75,6 @@ final class SyncEngine {
 
     func start() {
         installEnqueuer()
-        let interval = max(TimeInterval(Prefs.syncIntervalMinSeconds), intervalSeconds())
         let needsResync = pendingFullResync()
         Task {
             if needsResync {
@@ -73,20 +84,37 @@ final class SyncEngine {
                 await self.flushPushes()
             }
         }
-        let push = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { await self?.flushPushes() }
-        }
-        let pull = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { await self?.pullSince() }
-        }
-        pushTimer = push
-        pullTimer = pull
+        scheduleTimers()
     }
 
     func stop() {
+        cancelTimers()
+        store.eventBuilder = nil
+    }
+
+    /// Re-arm both timers at the current `intervalSeconds()` without an
+    /// immediate push/pull and without rebuilding `AuthSession`. Use this when
+    /// only the cadence changes — full engine recreate (which loses the cached
+    /// bearer and re-auths) is overkill for a stepper click.
+    func reschedule() {
+        guard pushTimer != nil || pullTimer != nil else { return }
+        cancelTimers()
+        scheduleTimers()
+    }
+
+    private func scheduleTimers() {
+        let interval = max(TimeInterval(Prefs.syncIntervalMinSeconds), intervalSeconds())
+        pushTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { await self?.flushPushes() }
+        }
+        pullTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { await self?.pullSince() }
+        }
+    }
+
+    private func cancelTimers() {
         pushTimer?.invalidate(); pushTimer = nil
         pullTimer?.invalidate(); pullTimer = nil
-        store.eventBuilder = nil
     }
 
     /// Sends every pending queue row that is not past the archive cutoff. Marks rows
@@ -94,6 +122,7 @@ final class SyncEngine {
     /// flush; persistent auth failure leaves rows in the queue for the next tick.
     func flushPushes() async {
         let rows = store.pendingQueueRows()
+        DiagLog.shared.record("push.start", ["pendingRows": rows.count])
         guard !rows.isEmpty else { return }
 
         var toSend: [SyncEvent] = []
@@ -118,13 +147,23 @@ final class SyncEngine {
         }
         guard !toSend.isEmpty else { return }
 
+        DiagLog.shared.record("push.send", [
+            "events": toSend.count,
+            "skippedArchiveCutoff": skippedSent.count
+        ])
         do {
             let response = try await pushWithAuth(events: toSend)
             let toMark = response.accepted + response.rejected.map(\.eventId)
             if !toMark.isEmpty {
                 store.markQueueRowsSent(eventIds: toMark, at: now())
             }
+            DiagLog.shared.record("push.response", [
+                "accepted": response.accepted.count,
+                "rejected": response.rejected.count,
+                "rejectedReasons": response.rejected.map(\.reason)
+            ])
         } catch {
+            DiagLog.shared.record("push.error", ["error": String(describing: error)])
             // Leave rows pending; retry next tick.
         }
     }
@@ -157,7 +196,7 @@ final class SyncEngine {
                 applyRemote(event)
                 pulled.insert(event.taskId)
             }
-            lastSyncedAtStorage.value = response.serverTime
+            lastSyncedAtStorage.value = cursorAfter(serverTime: response.serverTime)
             return pulled
         } catch {
             return []
@@ -168,13 +207,19 @@ final class SyncEngine {
     /// then advances `lastSyncedAt` to the server's clock from the response.
     func pullSince() async {
         let since = lastSyncedAtStorage.value ?? defaultSince()
+        DiagLog.shared.record("pull.start", ["since": since])
         do {
             let response = try await pullWithAuth(since: since)
+            DiagLog.shared.record("pull.response", [
+                "events": response.events.count,
+                "serverTime": response.serverTime
+            ])
             for event in response.events {
                 applyRemote(event)
             }
-            lastSyncedAtStorage.value = response.serverTime
+            lastSyncedAtStorage.value = cursorAfter(serverTime: response.serverTime)
         } catch {
+            DiagLog.shared.record("pull.error", ["error": String(describing: error)])
             // Network or auth failure — try again next tick.
         }
     }
@@ -230,7 +275,10 @@ final class SyncEngine {
                     accountDid: did,
                     deviceId: device,
                     eventId: eventId,
-                    taskId: snapshot.taskId.uuidString,
+                    // Canonical lowercase per docs/sync-protocol.md §3. macOS's
+                    // UUID.uuidString is uppercase by default; without this, web's
+                    // case-sensitive IndexedDB key would treat the same task as new.
+                    taskId: snapshot.taskId.uuidString.lowercased(),
                     updatedAt: snapshot.updatedAt,
                     plaintext: plaintext,
                     encryptionKey: key
@@ -246,19 +294,47 @@ final class SyncEngine {
     // MARK: - Apply pulled events
 
     private func applyRemote(_ event: SyncEvent) {
-        guard event.accountDid == identity.accountDid else { return }
-        guard let taskId = UUID(uuidString: event.taskId) else { return }
-        guard let updatedAt = ISO8601.parse(event.updatedAt) else { return }
+        guard event.accountDid == identity.accountDid else {
+            DiagLog.shared.record("apply.skip", [
+                "eventId": event.eventId,
+                "reason": "did_mismatch",
+                "eventDid": event.accountDid
+            ])
+            return
+        }
+        guard let taskId = UUID(uuidString: event.taskId) else {
+            DiagLog.shared.record("apply.skip", [
+                "eventId": event.eventId, "reason": "bad_task_id", "taskId": event.taskId
+            ])
+            return
+        }
+        guard let updatedAt = ISO8601.parse(event.updatedAt) else {
+            DiagLog.shared.record("apply.skip", [
+                "eventId": event.eventId, "reason": "bad_updated_at", "updatedAt": event.updatedAt
+            ])
+            return
+        }
 
         // Defense in depth: events for archived tasks older than 60 days are ignored.
         let cutoff = now().addingTimeInterval(-Self.archiveCutoff)
-        if updatedAt < cutoff && event.op == "upsert" { return }
+        if updatedAt < cutoff && event.op == "upsert" {
+            DiagLog.shared.record("apply.skip", [
+                "eventId": event.eventId, "reason": "older_than_archive_cutoff",
+                "updatedAt": event.updatedAt
+            ])
+            return
+        }
 
         do {
             let plaintext = try SyncEventCodec.openEvent(event, encryptionKey: encryptionKey)
             switch event.op {
             case "upsert":
-                guard let pt = plaintext else { return }
+                guard let pt = plaintext else {
+                    DiagLog.shared.record("apply.skip", [
+                        "eventId": event.eventId, "reason": "upsert_without_plaintext"
+                    ])
+                    return
+                }
                 store.applyRemoteUpsert(
                     taskId: taskId,
                     title: pt.title,
@@ -269,18 +345,47 @@ final class SyncEngine {
                     updatedAt: updatedAt,
                     eventId: event.eventId
                 )
+                var fields: [String: Any] = [
+                    "eventId": event.eventId, "op": event.op, "taskId": event.taskId,
+                    "updatedAt": event.updatedAt, "deviceId": event.deviceId
+                ]
+                if Prefs.diagLogIncludePlaintext {
+                    fields["title"] = pt.title
+                    if let due = pt.dueDate { fields["dueDate"] = ISO8601.format(due) }
+                }
+                DiagLog.shared.record("apply.upsert", fields)
             case "delete":
                 store.applyRemoteDelete(taskId: taskId, updatedAt: updatedAt, eventId: event.eventId)
+                DiagLog.shared.record("apply.delete", [
+                    "eventId": event.eventId, "taskId": event.taskId,
+                    "updatedAt": event.updatedAt, "deviceId": event.deviceId
+                ])
             default:
+                DiagLog.shared.record("apply.skip", [
+                    "eventId": event.eventId, "reason": "unknown_op", "op": event.op
+                ])
                 return
             }
         } catch {
+            DiagLog.shared.record("apply.error", [
+                "eventId": event.eventId,
+                "error": String(describing: error)
+            ])
             return
         }
     }
 
     private func defaultSince() -> String {
         ISO8601.format(Date(timeIntervalSince1970: 0))
+    }
+
+    /// Returns `serverTime` rewound by `cursorLookback`. Clamped at the epoch so
+    /// we never produce a pre-1970 ISO string. See `cursorLookback` for why.
+    private func cursorAfter(serverTime: String) -> String {
+        guard let parsed = ISO8601.parse(serverTime) else { return serverTime }
+        let rewound = parsed.addingTimeInterval(-Self.cursorLookback)
+        let floored = max(rewound, Date(timeIntervalSince1970: 0))
+        return ISO8601.format(floored)
     }
 }
 

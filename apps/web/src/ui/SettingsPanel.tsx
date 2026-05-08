@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AccountManager } from '../crypto/AccountManager';
 import { clearRevealCredential, defaultMnemonicChallenge, makeRevealGate } from '../crypto/RevealGate';
 import { Prefs, SYNC_INTERVAL_MAX_SECONDS, SYNC_INTERVAL_MIN_SECONDS } from '../models/Prefs';
 import { ping, describePingError, isBackendPingError } from '../sync/BackendPing';
-import { ensureDeviceId, fireCloudSyncChanged } from '../sync/SyncEngine';
+import { ensureDeviceId, fireCloudSyncChanged, fireCloudSyncIntervalChanged } from '../sync/SyncEngine';
 import { EnableCloudSyncSheet } from './EnableCloudSyncSheet';
 import { QRCodeImage } from './QRCodeImage';
 
@@ -37,6 +37,15 @@ export function SettingsPanel(): JSX.Element {
     return () => { mounted = false; };
   }, []);
 
+  // Debounce slider/select changes so dragging or rapid arrow-key input does
+  // not fire one engine reschedule per pixel. 500 ms is short enough that the
+  // user perceives the change as "applied" once they pause. Declared before
+  // the early return below so the hook order stays stable across renders.
+  const intervalCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (intervalCommitTimer.current !== null) clearTimeout(intervalCommitTimer.current);
+  }, []);
+
   if (!account) {
     return <div className="settings"><p className="muted">Loading account…</p></div>;
   }
@@ -54,12 +63,17 @@ export function SettingsPanel(): JSX.Element {
   };
 
   const commitInterval = (amount: number, unit: IntervalUnit): void => {
-    const seconds = clampIntervalSeconds(toSeconds(amount, unit));
-    if (seconds !== Prefs.syncIntervalSeconds()) {
+    if (intervalCommitTimer.current !== null) clearTimeout(intervalCommitTimer.current);
+    intervalCommitTimer.current = setTimeout(() => {
+      intervalCommitTimer.current = null;
+      const seconds = clampIntervalSeconds(toSeconds(amount, unit));
+      if (seconds === Prefs.syncIntervalSeconds()) return;
       Prefs.setSyncIntervalSeconds(seconds);
-      // Engine restart picks up the new cadence without a reload.
-      fireCloudSyncChanged(Prefs.cloudSyncEnabled());
-    }
+      // Lightweight signal — the existing engine reschedules its timers and
+      // keeps its bearer + AuthSession. Avoids the challenge/token + immediate
+      // pull burst that a full restart would cause on every commit.
+      fireCloudSyncIntervalChanged();
+    }, 500);
   };
 
   const onIntervalAmount = (raw: string): void => {

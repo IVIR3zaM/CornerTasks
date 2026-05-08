@@ -14,6 +14,12 @@ struct CloudSyncSection: View {
     @State private var confirmForget = false
     @State private var syncInterval: SyncIntervalChoice = SyncIntervalChoice.fromSeconds(Prefs.syncIntervalSeconds)
     @State private var syncIntervalAmount: Int = SyncIntervalChoice.amount(forSeconds: Prefs.syncIntervalSeconds)
+    @State private var diagLogEnabled: Bool = Prefs.diagLogEnabled
+    @State private var diagLogIncludePlaintext: Bool = Prefs.diagLogIncludePlaintext
+    /// Debounces rapid stepper / picker changes — without it, every click would
+    /// post `cornerTasksSyncIntervalChanged` immediately, and a fast clicker
+    /// could fire several reschedules per second.
+    @State private var intervalCommitItem: DispatchWorkItem?
 
     enum PingState: Equatable {
         case idle, pinging, ok, failed(String)
@@ -157,6 +163,50 @@ struct CloudSyncSection: View {
                 NotificationCenter.default.post(name: .cornerTasksCloudSyncChanged, object: nil)
             }
             .controlSize(.small)
+
+            Divider()
+            diagnosticsSection
+        }
+    }
+
+    // MARK: - Diagnostics
+
+    private var diagnosticsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Diagnostics").font(.caption.weight(.semibold))
+
+            Toggle("Log sync activity to file", isOn: $diagLogEnabled)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .onChange(of: diagLogEnabled) { Prefs.diagLogEnabled = $0 }
+
+            Text("Writes one JSON line per sync event to sync-log.jsonl in this app's support folder. Bearer tokens, ciphertext, and the mnemonic are never written.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if diagLogEnabled {
+                Toggle("Include decrypted task fields (sensitive)", isOn: $diagLogIncludePlaintext)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .onChange(of: diagLogIncludePlaintext) { Prefs.diagLogIncludePlaintext = $0 }
+                if diagLogIncludePlaintext {
+                    Text("Task titles and due dates will appear in cleartext. Don't share this log.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 8) {
+                    Button("Reveal log") {
+                        NSWorkspace.shared.activateFileViewerSelecting([DiagLog.fileURL])
+                    }
+                    .controlSize(.small)
+                    Button("Clear log") {
+                        Task { await DiagLog.shared.clear() }
+                    }
+                    .controlSize(.small)
+                }
+            }
         }
     }
 
@@ -294,13 +344,19 @@ struct CloudSyncSection: View {
     }
 
     private func commitSyncInterval() {
+        intervalCommitItem?.cancel()
         let seconds = syncInterval.toSeconds(amount: syncIntervalAmount)
         let clamped = max(Prefs.syncIntervalMinSeconds, min(Prefs.syncIntervalMaxSeconds, seconds))
-        if clamped != Prefs.syncIntervalSeconds {
+        let item = DispatchWorkItem {
+            guard clamped != Prefs.syncIntervalSeconds else { return }
             Prefs.syncIntervalSeconds = clamped
-            // Engine restart picks up the new cadence without an app relaunch.
-            NotificationCenter.default.post(name: .cornerTasksCloudSyncChanged, object: nil)
+            // Lightweight signal — the engine reschedules its timers and keeps
+            // its bearer + AuthSession. Avoids the challenge+token+pull burst
+            // that a full restart would cause on every commit.
+            NotificationCenter.default.post(name: .cornerTasksSyncIntervalChanged, object: nil)
         }
+        intervalCommitItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
     }
 
     private func runPing() async {

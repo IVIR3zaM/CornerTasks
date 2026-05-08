@@ -283,6 +283,32 @@ describe('SyncEngine — pull merges (last-writer-wins)', () => {
   });
 });
 
+describe('SyncEngine — taskId casing (regression)', () => {
+  it('uppercase taskId from a v0.2.0-pre peer merges into the existing lowercase row', async () => {
+    const h = await setupHarness();
+    h.engine.installEventBuilder();
+    const item = await h.store.add('first');
+    const local = (await h.store.activeTasks())[0];
+
+    const newer = new Date(local.createdAt.getTime() + 60_000);
+    const event = await makeEvent({
+      op: 'upsert',
+      accountDid: h.identity.accountDid,
+      deviceId: 'remote-device',
+      taskId: item!.id.toUpperCase(),
+      updatedAt: newer,
+      plaintext: { title: 'renamed-from-uppercase', createdAt: local.createdAt, completedAt: null, dueDate: null, order: local.order },
+      encryptionKey: h.encryptionKey,
+    });
+    h.transport.pullResponses = [{ events: [event], serverTime: isoFormat(newer) }];
+    await h.engine.pullSince();
+
+    const active = await h.store.activeTasks();
+    expect(active).toHaveLength(1);
+    expect(active[0].title).toBe('renamed-from-uppercase');
+  });
+});
+
 describe('SyncEngine — auth lifecycle', () => {
   it('on token_expired: invalidates cache, retries once, succeeds', async () => {
     const h = await setupHarness();

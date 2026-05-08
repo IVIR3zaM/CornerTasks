@@ -142,10 +142,10 @@ final class SyncEngineTests: XCTestCase {
         let item = store.activeTasks.first!
         // Force completedAt to 70 days ago via direct UPDATE.
         let cutoffDate = Date().addingTimeInterval(-70 * 24 * 60 * 60)
-        try forceCompletedAt(taskId: item.id.uuidString, date: cutoffDate)
+        try forceCompletedAt(taskId: item.id.uuidString.lowercased(), date: cutoffDate)
         // Re-enqueue an upsert reflecting the new completedAt.
         store.complete(item)
-        try forceCompletedAt(taskId: item.id.uuidString, date: cutoffDate)
+        try forceCompletedAt(taskId: item.id.uuidString.lowercased(), date: cutoffDate)
 
         await engine.flushPushes()
 
@@ -204,6 +204,38 @@ final class SyncEngineTests: XCTestCase {
         transport.pullResponses = [PullResponse(events: [stale], serverTime: ISO8601.format(Date()))]
         await engine.pullSince()
         XCTAssertEqual(store.activeTasks.first?.title, "remote-version")
+    }
+
+    // Regression: events arriving with an uppercase taskId from a v0.2.0-pre
+    // peer must merge into the existing lowercase row — not produce a duplicate.
+    func testPullEventWithUppercaseTaskIdMergesIntoLowercaseRow() async throws {
+        engine.installEnqueuer()
+        store.add("first")
+        let local = store.activeTasks.first!
+        let localUpdated = local.updatedAt
+
+        let newer = localUpdated.addingTimeInterval(60)
+        let event = try SyncEventCodec.makeEvent(
+            op: "upsert",
+            accountDid: identity.accountDid,
+            deviceId: "remote-device",
+            taskId: local.id.uuidString.uppercased(),
+            updatedAt: newer,
+            plaintext: EventPlaintext(
+                title: "renamed-from-uppercase",
+                createdAt: local.createdAt,
+                completedAt: nil,
+                dueDate: nil,
+                order: local.order
+            ),
+            encryptionKey: encryptionKey
+        )
+        transport.pullResponses = [PullResponse(events: [event], serverTime: ISO8601.format(newer))]
+
+        await engine.pullSince()
+
+        XCTAssertEqual(store.activeTasks.count, 1, "uppercase taskId must merge, not duplicate")
+        XCTAssertEqual(store.activeTasks.first?.title, "renamed-from-uppercase")
     }
 
     // MARK: - 401 handling: re-auth + single retry, queue rows preserved on persistent failure

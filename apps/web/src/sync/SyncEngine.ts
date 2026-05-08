@@ -28,6 +28,22 @@ export interface VisibilityHost {
 }
 
 export const ARCHIVE_CUTOFF_MS = 60 * 24 * 60 * 60 * 1000;
+
+/** Interim fix for the pull-cursor race: events whose client-set `updatedAt`
+ *  is older than the server's `serverTime` at our last pull but which arrive
+ *  at the server *after* that pull would otherwise be lost forever. We rewind
+ *  `lastSyncedAt` by `CURSOR_LOOKBACK_MS` on every advance so those events
+ *  come back on the next round. `applyRemote` is idempotent under
+ *  last-writer-wins, so the redelivery is harmless. Replace with a
+ *  server-assigned monotonic cursor in a follow-up iteration; see README
+ *  "Known limitations". */
+export const CURSOR_LOOKBACK_MS = 5 * 60 * 1000;
+
+const cursorAfter = (serverTime: string): string => {
+  const t = Date.parse(serverTime);
+  if (Number.isNaN(t)) return serverTime;
+  return new Date(Math.max(0, t - CURSOR_LOOKBACK_MS)).toISOString();
+};
 /** Test/legacy default. Real cadence is now `Prefs.syncIntervalSeconds`. */
 export const DEFAULT_SYNC_INTERVAL_MS = 60_000;
 
@@ -77,10 +93,19 @@ export const noopVisibilityHost = (): VisibilityHost => ({
 });
 
 export const CLOUD_SYNC_CHANGED_EVENT = 'cornertasks:cloud-sync-changed';
+/** Lightweight signal: only the timer cadence changed. The current engine
+ *  reschedules its timers and keeps its bearer + AuthSession. Distinct from
+ *  `CLOUD_SYNC_CHANGED_EVENT`, which is a full restart trigger. */
+export const CLOUD_SYNC_INTERVAL_CHANGED_EVENT = 'cornertasks:cloud-sync-interval-changed';
 
 export const fireCloudSyncChanged = (enabled: boolean): void => {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(CLOUD_SYNC_CHANGED_EVENT, { detail: { enabled } }));
+};
+
+export const fireCloudSyncIntervalChanged = (): void => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(CLOUD_SYNC_INTERVAL_CHANGED_EVENT));
 };
 
 export interface SyncEngineOptions {
@@ -188,7 +213,10 @@ export class SyncEngine {
           accountDid: this.identity.accountDid,
           deviceId: this.deviceId,
           eventId,
-          taskId: snapshot.taskId,
+          // Canonical lowercase per docs/sync-protocol.md §3. crypto.randomUUID
+          // already lowercases, but old web rows or imports could still hold an
+          // uppercase id; lowercase here so wire events are always canonical.
+          taskId: snapshot.taskId.toLowerCase(),
           updatedAt: snapshot.updatedAt,
           plaintext,
           encryptionKey: this.encryptionKey,
@@ -264,7 +292,7 @@ export class SyncEngine {
         await this.applyRemote(event);
         pulled.add(event.taskId);
       }
-      this.lastSyncedAt.set(response.serverTime);
+      this.lastSyncedAt.set(cursorAfter(response.serverTime));
       console.info('[CornerTasks sync] resync pull complete', { pulled: pulled.size });
       return pulled;
     } catch (err) {
@@ -280,7 +308,7 @@ export class SyncEngine {
       for (const event of response.events) {
         await this.applyRemote(event);
       }
-      this.lastSyncedAt.set(response.serverTime);
+      this.lastSyncedAt.set(cursorAfter(response.serverTime));
     } catch (err) {
       console.warn('[CornerTasks sync] pull failed; will retry next tick', err);
     }
@@ -332,10 +360,14 @@ export class SyncEngine {
     } catch {
       return;
     }
+    // Canonical lowercase per docs/sync-protocol.md §3. v0.2.0-pre macOS
+    // builds emitted uppercase taskIds; lowercasing on receipt keeps
+    // IndexedDB keys consistent across clients.
+    const taskId = event.taskId.toLowerCase();
     if (event.op === 'upsert') {
       if (!plaintext) return;
       await this.store.applyRemoteUpsert({
-        taskId: event.taskId,
+        taskId,
         title: plaintext.title,
         createdAt: plaintext.createdAt,
         completedAt: plaintext.completedAt,
@@ -345,7 +377,7 @@ export class SyncEngine {
         eventId: event.eventId,
       });
     } else if (event.op === 'delete') {
-      await this.store.applyRemoteDelete({ taskId: event.taskId, updatedAt, eventId: event.eventId });
+      await this.store.applyRemoteDelete({ taskId, updatedAt, eventId: event.eventId });
     }
   }
 
@@ -359,6 +391,16 @@ export class SyncEngine {
       void this.pullSince();
       this.scheduleTimers();
     }
+  }
+
+  /** Re-arm both timers at the current `intervalMs()` without an immediate
+   *  push/pull and without rebuilding `AuthSession`. Use this when only the
+   *  cadence changes — full engine recreate (which loses the cached bearer
+   *  and re-auths) is overkill for a slider drag. */
+  reschedule(): void {
+    if (this.pushTimer === null && this.pullTimer === null) return;
+    this.cancelTimers();
+    if (!this.visibility.isHidden()) this.scheduleTimers();
   }
 
   private scheduleTimers(): void {

@@ -10,7 +10,7 @@ import { AccountManager } from '../crypto/AccountManager';
 import { encryptionKeyBytes } from '../crypto/keys';
 import { toSeed } from '../crypto/mnemonic';
 import { FetchTransport } from '../sync/syncTransport';
-import { ensureDeviceId, SyncEngine, CLOUD_SYNC_CHANGED_EVENT } from '../sync/SyncEngine';
+import { ensureDeviceId, SyncEngine, CLOUD_SYNC_CHANGED_EVENT, CLOUD_SYNC_INTERVAL_CHANGED_EVENT } from '../sync/SyncEngine';
 import pkg from '../../package.json';
 
 type Tab = 'tasks' | 'archive';
@@ -55,8 +55,16 @@ export function App() {
   useEffect(() => {
     if (!store) return;
     let engine: SyncEngine | null = null;
+    // Generation counter: every concurrent invocation of startIfEnabled gets a
+    // fresh id. Async work between the awaits and the engine.start() can be
+    // overtaken by a newer call (user toggles sync rapidly); the older run
+    // bails out when its id no longer matches `runId`. Without this guard the
+    // older run would create a second engine after we already moved on,
+    // leaking a never-stopped set of timers.
+    let runId = 0;
 
     const startIfEnabled = async (): Promise<void> => {
+      const myId = ++runId;
       engine?.stop();
       engine = null;
       if (!Prefs.cloudSyncEnabled()) {
@@ -70,13 +78,16 @@ export function App() {
       }
       try {
         const account = await AccountManager.open();
+        if (myId !== runId) return;
         if (!account.identity || !account.mnemonic) {
           console.warn('[CornerTasks sync] no mnemonic stored; engine not started');
           return;
         }
         const transport = new FetchTransport(apiUrl);
         const seed = await toSeed(account.mnemonic);
+        if (myId !== runId) return;
         const key = await encryptionKeyBytes(seed);
+        if (myId !== runId) return;
         engine = new SyncEngine({
           store,
           transport,
@@ -100,9 +111,12 @@ export function App() {
 
     void startIfEnabled();
     const onChange = (): void => { void startIfEnabled(); };
+    const onIntervalChange = (): void => { engine?.reschedule(); };
     window.addEventListener(CLOUD_SYNC_CHANGED_EVENT, onChange);
+    window.addEventListener(CLOUD_SYNC_INTERVAL_CHANGED_EVENT, onIntervalChange);
     return () => {
       window.removeEventListener(CLOUD_SYNC_CHANGED_EVENT, onChange);
+      window.removeEventListener(CLOUD_SYNC_INTERVAL_CHANGED_EVENT, onIntervalChange);
       engine?.stop();
     };
   }, [store]);

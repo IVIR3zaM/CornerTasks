@@ -102,14 +102,45 @@ final class URLSessionSyncTransport: SyncTransport {
     }
 
     private func perform<T: Decodable>(_ req: URLRequest, decode: T.Type) async throws -> T {
+        let method = req.httpMethod ?? "GET"
+        let path = req.url?.path ?? ""
+        let bodyBytes = req.httpBody?.count ?? 0
+        let hasBearer = req.value(forHTTPHeaderField: "Authorization") != nil
+
+        var fields: [String: Any] = [
+            "method": method, "path": path, "bodyBytes": bodyBytes, "hasBearer": hasBearer
+        ]
+        if let comps = req.url.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }),
+           let items = comps.queryItems, !items.isEmpty {
+            var qs: [String: String] = [:]
+            for item in items { qs[item.name] = item.value ?? "" }
+            fields["query"] = qs
+        }
+        if let body = req.httpBody, let summary = Self.redactedBodySummary(path: path, body: body) {
+            fields["body"] = summary
+        }
+        DiagLog.shared.record("http.request", fields)
+
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: req)
         } catch {
+            DiagLog.shared.record("http.transport_error", [
+                "method": method, "path": path, "error": String(describing: error)
+            ])
             throw SyncTransportError.network(String(describing: error))
         }
-        guard let http = response as? HTTPURLResponse else { throw SyncTransportError.network("non-HTTP response") }
+        guard let http = response as? HTTPURLResponse else {
+            DiagLog.shared.record("http.non_http_response", ["method": method, "path": path])
+            throw SyncTransportError.network("non-HTTP response")
+        }
+        DiagLog.shared.record("http.response", [
+            "method": method, "path": path,
+            "status": http.statusCode, "responseBytes": data.count,
+            // For 4xx/5xx the body is usually our own server's JSON error — safe and useful.
+            "errorBody": (http.statusCode >= 400) ? (String(data: data, encoding: .utf8) ?? "") : ""
+        ])
         if http.statusCode == 401 {
             let reason = errorReason(in: data)
             switch reason {
@@ -137,5 +168,47 @@ final class URLSessionSyncTransport: SyncTransport {
     private func errorReason(in data: Data) -> String? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return obj["reason"] as? String
+    }
+
+    /// Returns a JSON-safe redacted summary of an outbound POST body, suitable
+    /// for the diagnostic log. Drops `ciphertext`, `nonce`, `didJwt` and other
+    /// secret-bearing fields; keeps routing metadata (eventId, op, taskId,
+    /// updatedAt, deviceId) so missing-update bugs are diagnosable.
+    static func redactedBodySummary(path: String, body: Data) -> Any? {
+        guard let json = try? JSONSerialization.jsonObject(with: body) else { return nil }
+
+        // POST /v1/sync/push — { accountDid, events: [SyncEvent] }
+        if path.hasSuffix("/v1/sync/push"), let dict = json as? [String: Any] {
+            var summary: [String: Any] = [:]
+            if let did = dict["accountDid"] as? String { summary["accountDid"] = did }
+            if let events = dict["events"] as? [[String: Any]] {
+                summary["eventCount"] = events.count
+                summary["events"] = events.map { ev -> [String: Any] in
+                    var e: [String: Any] = [:]
+                    for k in ["eventId", "op", "taskId", "updatedAt", "deviceId", "accountDid"] {
+                        if let v = ev[k] { e[k] = v }
+                    }
+                    if let ct = ev["ciphertext"] as? String { e["ciphertextLength"] = ct.count }
+                    if let n = ev["nonce"] as? String { e["nonceLength"] = n.count }
+                    return e
+                }
+            }
+            return summary
+        }
+
+        // POST /v1/auth/token — { accountDid, didJwt }. Redact the JWT.
+        if path.hasSuffix("/v1/auth/token"), let dict = json as? [String: Any] {
+            var summary: [String: Any] = [:]
+            if let did = dict["accountDid"] as? String { summary["accountDid"] = did }
+            if let jwt = dict["didJwt"] as? String { summary["didJwtLength"] = jwt.count }
+            return summary
+        }
+
+        // POST /v1/auth/challenge — { accountDid }. Safe to log as-is.
+        if path.hasSuffix("/v1/auth/challenge") {
+            return json
+        }
+
+        return nil
     }
 }

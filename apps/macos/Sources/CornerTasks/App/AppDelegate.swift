@@ -20,10 +20,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .cornerTasksCloudSyncChanged,
             object: nil
         )
+        // Distinct lightweight notification: just rearm the timers, no engine
+        // recreate. Without this, every stepper click would teardown the
+        // engine, drop the cached bearer, and burst challenge+token+pull.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSyncIntervalChanged),
+            name: .cornerTasksSyncIntervalChanged,
+            object: nil
+        )
     }
 
     @objc private func handleCloudSyncChanged() {
         startSyncIfEnabled()
+    }
+
+    @objc private func handleSyncIntervalChanged() {
+        syncEngine?.reschedule()
     }
 
     /// Starts the sync engine iff cloud sync is enabled, a backend URL is configured,

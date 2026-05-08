@@ -37,6 +37,7 @@ actor AuthSession {
 
     /// Drops the cached token. Called by the engine after a `bad_token`/`token_expired`.
     func invalidate() {
+        DiagLog.shared.record("auth.invalidate", [:])
         cachedToken = nil
         cachedExpiresAt = nil
     }
@@ -46,12 +47,23 @@ actor AuthSession {
     func cachedTokenForTesting() -> String? { cachedToken }
 
     private func refresh() async throws -> String {
+        DiagLog.shared.record("auth.refresh.start", ["accountDid": identity.accountDid])
         let challenge = try await transport.challenge(accountDid: identity.accountDid)
+        DiagLog.shared.record("auth.challenge", [
+            "audience": challenge.audience,
+            "challengeLength": challenge.challenge.count,
+            "expiresAt": challenge.expiresAt
+        ])
         let iat = Int(now().timeIntervalSince1970)
         let didJwt = try identity.makeDidJwt(audience: challenge.audience, nonce: challenge.challenge, iat: iat)
+        DiagLog.shared.record("auth.didjwt.signed", ["didJwtLength": didJwt.count, "iat": iat])
         let token = try await transport.token(accountDid: identity.accountDid, didJwt: didJwt)
         cachedToken = token.accessToken
         cachedExpiresAt = ISO8601.parse(token.expiresAt) ?? now().addingTimeInterval(3600)
+        DiagLog.shared.record("auth.token.issued", [
+            "expiresAt": token.expiresAt,
+            "accessTokenLength": token.accessToken.count
+        ])
         return token.accessToken
     }
 }

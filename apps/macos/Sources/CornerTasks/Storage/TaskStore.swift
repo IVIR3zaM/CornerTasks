@@ -67,7 +67,65 @@ final class TaskStore: ObservableObject {
         }
         Schema.create(db: db)
         migrateFromJSONIfNeeded(folder: directory)
+        lowercaseTaskIdsIfNeeded()
         reload()
+    }
+
+    /// One-shot migration that lowercases every `tasks.id`. Pre-fix builds emitted
+    /// uppercase UUIDs (Swift's default), while web emits lowercase per RFC 4122,
+    /// so a task created on web and updated on macOS could appear twice on web.
+    /// Idempotent: gated by a UserDefaults flag and a no-op once everything is
+    /// already lowercase. On collision (rare; would require both an uppercase and
+    /// a lowercase row for the same UUID) the row with the greater `updated_at`
+    /// wins. The outbound queue is *not* rewritten — pending rows there are
+    /// already-encoded events that will be marked sent on the next push attempt;
+    /// the next round of edits will use the new lowercase form.
+    private func lowercaseTaskIdsIfNeeded() {
+        let key = "cornertasks.storage.taskIdsLowercased.v1"
+        if UserDefaults.standard.bool(forKey: key) { return }
+
+        var rows: [(id: String, updatedAt: Double)] = []
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT id, updated_at FROM tasks", -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let cId = sqlite3_column_text(stmt, 0) else { continue }
+                let id = String(cString: cId)
+                let updated = sqlite3_column_double(stmt, 1)
+                rows.append((id: id, updatedAt: updated))
+            }
+        }
+        sqlite3_finalize(stmt)
+
+        // Group by lowercase id; resolve collisions by greatest updated_at.
+        var winnerByLower: [String: (id: String, updatedAt: Double)] = [:]
+        var losers: [String] = []
+        for row in rows {
+            let lower = row.id.lowercased()
+            if let current = winnerByLower[lower] {
+                if row.updatedAt > current.updatedAt {
+                    losers.append(current.id)
+                    winnerByLower[lower] = row
+                } else {
+                    losers.append(row.id)
+                }
+            } else {
+                winnerByLower[lower] = row
+            }
+        }
+
+        for loser in losers {
+            exec("DELETE FROM tasks WHERE id = ?") { stmt in
+                sqlite3_bind_text(stmt, 1, loser, -1, SQLITE_TRANSIENT)
+            }
+        }
+        for (lower, winner) in winnerByLower where winner.id != lower {
+            exec("UPDATE tasks SET id = ? WHERE id = ?") { stmt in
+                sqlite3_bind_text(stmt, 1, lower, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 2, winner.id, -1, SQLITE_TRANSIENT)
+            }
+        }
+
+        UserDefaults.standard.set(true, forKey: key)
     }
 
     deinit { sqlite3_close(db) }
@@ -88,7 +146,7 @@ final class TaskStore: ObservableObject {
         let item = TaskItem(title: trimmed, order: nextOrder)
         let now = Date()
         exec("INSERT INTO tasks (id, title, created_at, completed_at, due_date, ord, updated_at, deleted_at) VALUES (?, ?, ?, NULL, NULL, ?, ?, NULL)") { stmt in
-            sqlite3_bind_text(stmt, 1, item.id.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 1, item.id.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 2, item.title, -1, SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 3, item.createdAt.timeIntervalSince1970)
             sqlite3_bind_int64(stmt, 4, Int64(item.order))
@@ -107,7 +165,7 @@ final class TaskStore: ObservableObject {
                 sqlite3_bind_null(stmt, 1)
             }
             sqlite3_bind_double(stmt, 2, now.timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 3, item.id.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, item.id.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
         }
         enqueueUpsert(taskId: item.id)
         reload()
@@ -118,7 +176,7 @@ final class TaskStore: ObservableObject {
         exec("UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?") { stmt in
             sqlite3_bind_double(stmt, 1, now.timeIntervalSince1970)
             sqlite3_bind_double(stmt, 2, now.timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 3, item.id.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, item.id.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
         }
         enqueueUpsert(taskId: item.id)
         reload()
@@ -131,7 +189,7 @@ final class TaskStore: ObservableObject {
         exec("UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?") { stmt in
             sqlite3_bind_text(stmt, 1, trimmed, -1, SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, now.timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 3, item.id.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, item.id.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
         }
         enqueueUpsert(taskId: item.id)
         reload()
@@ -144,7 +202,7 @@ final class TaskStore: ObservableObject {
         exec("UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id = ?") { stmt in
             sqlite3_bind_double(stmt, 1, now.timeIntervalSince1970)
             sqlite3_bind_double(stmt, 2, now.timeIntervalSince1970)
-            sqlite3_bind_text(stmt, 3, item.id.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, item.id.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
         }
         enqueueDelete(taskId: item.id)
         reload()
@@ -159,7 +217,7 @@ final class TaskStore: ObservableObject {
             exec("UPDATE tasks SET ord = ?, updated_at = ? WHERE id = ?") { stmt in
                 sqlite3_bind_int64(stmt, 1, Int64(idx))
                 sqlite3_bind_double(stmt, 2, now.timeIntervalSince1970)
-                sqlite3_bind_text(stmt, 3, item.id.uuidString, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 3, item.id.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
             }
         }
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
@@ -268,7 +326,7 @@ final class TaskStore: ObservableObject {
         guard let event = builder(snapshot) else { return }
         exec("INSERT INTO sync_queue (event_id, task_id, op, payload, created_at, sent_at) VALUES (?, ?, ?, ?, ?, NULL)") { stmt in
             sqlite3_bind_text(stmt, 1, event.eventId, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 2, snapshot.taskId.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, snapshot.taskId.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 3, snapshot.op, -1, SQLITE_TRANSIENT)
             _ = event.payloadJSON.withUnsafeBytes { rawBuf -> Int32 in
                 if let base = rawBuf.baseAddress {
@@ -298,14 +356,14 @@ final class TaskStore: ObservableObject {
     /// stored `updated_at` (or equal with a lexicographically greater `eventId`).
     /// Pulled events do not feed back into the outbound queue.
     func applyRemoteUpsert(taskId: UUID, title: String, createdAt: Date, completedAt: Date?, dueDate: Date?, order: Int, updatedAt: Date, eventId: String) {
-        let existing = fetchRow(taskId: taskId.uuidString)
+        let existing = fetchRow(taskId: taskId.uuidString.lowercased())
         if let existing,
            !shouldReplace(localUpdated: existing.updatedAt, localEventId: existing.lastEventId, incomingUpdated: updatedAt, incomingEventId: eventId) {
             return
         }
         if existing == nil {
             exec("INSERT INTO tasks (id, title, created_at, completed_at, due_date, ord, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)") { stmt in
-                sqlite3_bind_text(stmt, 1, taskId.uuidString, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 1, taskId.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
                 sqlite3_bind_text(stmt, 2, title, -1, SQLITE_TRANSIENT)
                 sqlite3_bind_double(stmt, 3, createdAt.timeIntervalSince1970)
                 if let c = completedAt { sqlite3_bind_double(stmt, 4, c.timeIntervalSince1970) } else { sqlite3_bind_null(stmt, 4) }
@@ -321,15 +379,15 @@ final class TaskStore: ObservableObject {
                 if let d = dueDate { sqlite3_bind_double(stmt, 4, d.timeIntervalSince1970) } else { sqlite3_bind_null(stmt, 4) }
                 sqlite3_bind_int64(stmt, 5, Int64(order))
                 sqlite3_bind_double(stmt, 6, updatedAt.timeIntervalSince1970)
-                sqlite3_bind_text(stmt, 7, taskId.uuidString, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 7, taskId.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
             }
         }
-        rememberLastEventId(taskId: taskId.uuidString, eventId: eventId)
+        rememberLastEventId(taskId: taskId.uuidString.lowercased(), eventId: eventId)
         reload()
     }
 
     func applyRemoteDelete(taskId: UUID, updatedAt: Date, eventId: String) {
-        let existing = fetchRow(taskId: taskId.uuidString)
+        let existing = fetchRow(taskId: taskId.uuidString.lowercased())
         if let existing,
            !shouldReplace(localUpdated: existing.updatedAt, localEventId: existing.lastEventId, incomingUpdated: updatedAt, incomingEventId: eventId) {
             return
@@ -337,7 +395,7 @@ final class TaskStore: ObservableObject {
         if existing == nil {
             // Insert a tombstone so subsequent re-creates can be ordered correctly.
             exec("INSERT INTO tasks (id, title, created_at, completed_at, due_date, ord, updated_at, deleted_at) VALUES (?, '', ?, NULL, NULL, 0, ?, ?)") { stmt in
-                sqlite3_bind_text(stmt, 1, taskId.uuidString, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 1, taskId.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
                 sqlite3_bind_double(stmt, 2, updatedAt.timeIntervalSince1970)
                 sqlite3_bind_double(stmt, 3, updatedAt.timeIntervalSince1970)
                 sqlite3_bind_double(stmt, 4, updatedAt.timeIntervalSince1970)
@@ -346,10 +404,10 @@ final class TaskStore: ObservableObject {
             exec("UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id = ?") { stmt in
                 sqlite3_bind_double(stmt, 1, updatedAt.timeIntervalSince1970)
                 sqlite3_bind_double(stmt, 2, updatedAt.timeIntervalSince1970)
-                sqlite3_bind_text(stmt, 3, taskId.uuidString, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 3, taskId.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
             }
         }
-        rememberLastEventId(taskId: taskId.uuidString, eventId: eventId)
+        rememberLastEventId(taskId: taskId.uuidString.lowercased(), eventId: eventId)
         reload()
     }
 
@@ -439,7 +497,7 @@ final class TaskStore: ObservableObject {
         guard let event = builder(snapshot) else { return }
         exec("INSERT INTO sync_queue (event_id, task_id, op, payload, created_at, sent_at) VALUES (?, ?, ?, ?, ?, NULL)") { stmt in
             sqlite3_bind_text(stmt, 1, event.eventId, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 2, taskId.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, taskId.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 3, op, -1, SQLITE_TRANSIENT)
             _ = event.payloadJSON.withUnsafeBytes { rawBuf -> Int32 in
                 if let base = rawBuf.baseAddress {
@@ -457,7 +515,7 @@ final class TaskStore: ObservableObject {
         defer { sqlite3_finalize(stmt) }
         let sql = "SELECT title, created_at, completed_at, due_date, ord, updated_at, deleted_at FROM tasks WHERE id = ?"
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, taskId.uuidString, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(stmt, 1, taskId.uuidString.lowercased(), -1, SQLITE_TRANSIENT)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         let title = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
         let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1))

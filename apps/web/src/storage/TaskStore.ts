@@ -155,7 +155,50 @@ export class TaskStore {
       req.onerror = () => reject(req.error ?? new Error('IndexedDB open failed'));
       req.onblocked = () => reject(new Error('IndexedDB open blocked: another tab holds an older version. Close other CornerTasks tabs and reload.'));
     });
-    return new TaskStore(db);
+    const store = new TaskStore(db);
+    await store.lowercaseTaskIdsIfNeeded();
+    return store;
+  }
+
+  /** One-shot migration. v0.2.0-pre macOS builds emitted uppercase taskIds;
+   *  any tasks created on macOS and pulled into IndexedDB landed with uppercase
+   *  primary keys. After this migration every row is keyed by canonical
+   *  lowercase. On collision (rare) the row with the greater `updatedAt` wins.
+   *  Idempotent: gated by a localStorage flag and a no-op once everything is
+   *  already lowercase. */
+  private async lowercaseTaskIdsIfNeeded(): Promise<void> {
+    const flag = 'cornertasks.storage.taskIdsLowercased.v1';
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(flag) === '1') return;
+
+    const rows = await this.allStored();
+    const winnerByLower = new Map<string, StoredTask>();
+    const losers: string[] = [];
+    for (const row of rows) {
+      const lower = row.id.toLowerCase();
+      const current = winnerByLower.get(lower);
+      if (!current) {
+        winnerByLower.set(lower, row);
+      } else if (row.updatedAt > current.updatedAt) {
+        losers.push(current.id);
+        winnerByLower.set(lower, row);
+      } else {
+        losers.push(row.id);
+      }
+    }
+
+    await this.runWriteTx(async (tx) => {
+      const os = tx.objectStore(STORE);
+      for (const loser of losers) os.delete(loser);
+      for (const [lower, winner] of winnerByLower) {
+        if (winner.id !== lower) {
+          os.delete(winner.id);
+          os.put({ ...winner, id: lower });
+        }
+      }
+    });
+
+    if (typeof localStorage !== 'undefined') localStorage.setItem(flag, '1');
+    this.notify();
   }
 
   close(): void {
