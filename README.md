@@ -1,6 +1,6 @@
 # CornerTasks
 
-**Version: v0.1.0** · **Next: v0.2.0 (in progress — see [`ITERATIONS.md`](ITERATIONS.md))**
+**Version: v0.2.0**
 
 A tiny task widget. v0.1.0 ships a macOS app that lives as a vertical strip pinned to the right edge of your screen. v0.2.0 adds a mobile-first web app, an end-to-end-encrypted AWS backend, and sync between devices.
 
@@ -164,4 +164,4 @@ Licensed under the [Apache License 2.0](LICENSE).
 | Version | Notes |
 | --- | --- |
 | v0.1.0 | First release. SQLite storage, due dates with color coding, full-height side panel, dock-icon toggle. |
-| v0.2.0 *(planned)* | Multi-platform layout, mobile-first web app on S3+CloudFront, BYO-AWS serverless backend, opt-in end-to-end-encrypted sync, decentralized `did:key` identity. See [`ITERATIONS.md`](ITERATIONS.md). |
+| v0.2.0 | Multi-platform layout, mobile-first web app on S3+CloudFront, BYO-AWS serverless backend, opt-in end-to-end-encrypted sync, decentralized `did:key` identity. |

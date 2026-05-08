@@ -1,6 +1,6 @@
 {
   "name": "@cornertasks/web",
-  "version": "0.2.0-dev",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "CornerTasks web app (mobile-first). Local-only by default; cloud sync is opt-in (added in later iterations).",
