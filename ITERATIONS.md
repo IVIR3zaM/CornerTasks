@@ -27,7 +27,7 @@ Ordered work plan to take CornerTasks from v0.1.0 (single-file macOS app) to v0.
 - [x] **10.** Account UI on web (same flows + camera-based QR scan)
 - [x] **11.** Sync engine on macOS (push every 10 min, pull every 1 min, archive cutoff, only when cloud sync enabled)
 - [x] **12.** Sync engine on web
-- [ ] **13.** End-to-end verification across one macOS + one web device
+- [x] **13.** End-to-end verification across one macOS + one web device
 - [ ] **14.** Release v0.2.0
 
 ---
