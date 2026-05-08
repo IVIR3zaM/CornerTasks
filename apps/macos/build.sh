@@ -59,6 +59,20 @@ cp "$BIN_PATH/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/"
 cp AppBundle/Info.plist "$APP_BUNDLE/Contents/Info.plist"
 cp "$ICNS" "$APP_BUNDLE/Contents/Resources/${APP_NAME}.icns"
 
+# Copy SwiftPM-generated resource bundles (e.g. CornerTasks_CornerTasks.bundle,
+# which holds bip39-english.txt). Without these, `Bundle.module` traps at
+# launch the first time any code path touches a packaged resource.
+shopt -s nullglob
+for rb in "$BIN_PATH"/*.bundle; do
+  cp -R "$rb" "$APP_BUNDLE/Contents/Resources/"
+done
+shopt -u nullglob
+
+if [[ ! -e "$APP_BUNDLE/Contents/Resources/${APP_NAME}_${APP_NAME}.bundle" ]]; then
+  echo "ERROR: ${APP_NAME}_${APP_NAME}.bundle missing from $BIN_PATH — Bundle.module would trap at launch." >&2
+  exit 1
+fi
+
 # Optional version stamping.
 if [[ -n "${VERSION:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION"           "$APP_BUNDLE/Contents/Info.plist"
