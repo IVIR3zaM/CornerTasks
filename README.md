@@ -47,10 +47,6 @@ The full plan lives in [`ITERATIONS.md`](ITERATIONS.md). It is split so that eac
 - **Decentralized identity:** your account ID is a `did:key` whose private half lives only on your devices. Two devices with the same mnemonic share the same DID and join the same account.
 - **The backend lives in your AWS account, not anyone else's.** See "Bring your own AWS" below. The released DMG never embeds a backend URL.
 
-## Known limitations (v0.2.0)
-
-- **Pull cursor uses client-set `updatedAt`, not a server-assigned sequence.** Today the backend indexes events by the `updatedAt` the originating client wrote, and pull returns events with `updatedAt >= since`. After a successful pull, clients advance `lastSyncedAt` to the server's `serverTime`. This races: an event whose `updatedAt` is older than a recent puller's `serverTime` but which arrives at the server *after* that pull would be silently filtered out on the next round. To absorb both that race and any client/server clock skew, both clients **rewind `lastSyncedAt` by 5 minutes on every advance** (`SyncEngine.cursorLookback` in macOS, `CURSOR_LOOKBACK_MS` in web). Re-delivered events are harmless because `applyRemote` is idempotent under last-writer-wins. The structural fix — a server-assigned monotonic cursor — is planned for a follow-up iteration before tagging v0.2.0.
-
 ## Bring your own AWS
 
 CornerTasks does not ship with a hosted backend. To use cloud sync you deploy `backend/aws/` to your own AWS account, then point the app at the URL it prints.

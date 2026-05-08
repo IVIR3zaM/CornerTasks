@@ -36,7 +36,10 @@ export interface PushResponse {
 
 export interface PullResponse {
   events: SyncEvent[];
-  serverTime: string;
+  /** Opaque cursor to send back as `?cursor=` on the next pull. Server-assigned
+   *  monotonic per-account sequence (numeric string). `"0"` means "from the
+   *  beginning". */
+  nextCursor: string;
 }
 
 export const ChallengeRequestSchema = z.object({ accountDid: DidKey });

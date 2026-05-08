@@ -3,12 +3,16 @@ import {
   DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
-  DeleteCommand
+  DeleteCommand,
+  UpdateCommand
 } from '@aws-sdk/lib-dynamodb';
 import { ARCHIVE_RETENTION_MS } from './archive-retention';
-import type { AuthChallenge, Store, StoredEvent } from './db';
+import type { AuthChallenge, QueryEventsResult, Store, StoredEvent } from './db';
+import { parseCursor } from './db';
 
 const ARCHIVE_CUTOFF_MS = ARCHIVE_RETENTION_MS;
+
+const COUNTER_SK = 'COUNTER';
 
 export function dynamoStore(): Store {
   const eventsTable = process.env.EVENTS_TABLE;
@@ -18,8 +22,29 @@ export function dynamoStore(): Store {
   }
   const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
+  /** Atomically increment the per-account sequence counter and return the new
+   *  value. Allocates a fresh seq even if the subsequent event write is
+   *  stale-rejected — gaps are harmless because pull queries `seq > cursor`. */
+  async function nextSeq(accountDid: string): Promise<number> {
+    const out = await client.send(
+      new UpdateCommand({
+        TableName: eventsTable,
+        Key: { pk: `ACCOUNT#${accountDid}`, sk: COUNTER_SK },
+        UpdateExpression: 'ADD seq :one',
+        ExpressionAttributeValues: { ':one': 1 },
+        ReturnValues: 'UPDATED_NEW'
+      })
+    );
+    const seq = (out.Attributes ?? {}).seq;
+    if (typeof seq !== 'number') {
+      throw new Error('counter update did not return a numeric seq');
+    }
+    return seq;
+  }
+
   return {
     async putEvent(ev: StoredEvent) {
+      const seq = await nextSeq(ev.accountDid);
       try {
         await client.send(
           new PutCommand({
@@ -35,6 +60,7 @@ export function dynamoStore(): Store {
               op: ev.op,
               ciphertext: ev.ciphertext,
               nonce: ev.nonce,
+              seq,
               ...(ev.archivedCompletedAt
                 ? { archivedCompletedAt: ev.archivedCompletedAt }
                 : {})
@@ -44,7 +70,7 @@ export function dynamoStore(): Store {
             ExpressionAttributeValues: { ':u': ev.updatedAt, ':e': ev.eventId }
           })
         );
-        return { accepted: true };
+        return { accepted: true, seq };
       } catch (err) {
         const name = (err as { name?: string }).name;
         if (name === 'ConditionalCheckFailedException') return { accepted: false };
@@ -52,33 +78,37 @@ export function dynamoStore(): Store {
       }
     },
 
-    async queryEventsSince(accountDid, sinceMs) {
-      const cutoff = new Date(Date.now() - ARCHIVE_CUTOFF_MS).toISOString();
-      const sinceIso = new Date(sinceMs).toISOString();
+    async queryEventsAfter(accountDid, cursor): Promise<QueryEventsResult> {
+      const cursorN = parseCursor(cursor);
+      const archiveCutoffIso = new Date(Date.now() - ARCHIVE_CUTOFF_MS).toISOString();
       const results: StoredEvent[] = [];
       let exclusiveStartKey: Record<string, unknown> | undefined;
       do {
         const out = await client.send(
           new QueryCommand({
             TableName: eventsTable,
-            IndexName: 'ByUpdatedAt',
-            KeyConditionExpression: 'pk = :pk AND updatedAt >= :since',
-            ExpressionAttributeValues: { ':pk': `ACCOUNT#${accountDid}`, ':since': sinceIso },
+            IndexName: 'BySeq',
+            KeyConditionExpression: 'pk = :pk AND seq > :cursor',
+            ExpressionAttributeValues: { ':pk': `ACCOUNT#${accountDid}`, ':cursor': cursorN },
             ExclusiveStartKey: exclusiveStartKey
           })
         );
         for (const item of out.Items ?? []) {
           const ev = item as StoredEvent;
-          if (ev.archivedCompletedAt && ev.archivedCompletedAt < cutoff) continue;
+          // The COUNTER row lives in the same partition. It has no `eventId` so
+          // it gets a defensive type-guard skip in case the GSI ever projects it.
+          if (!ev.eventId) continue;
+          if (ev.archivedCompletedAt && ev.archivedCompletedAt < archiveCutoffIso) continue;
           results.push(ev);
         }
         exclusiveStartKey = out.LastEvaluatedKey;
       } while (exclusiveStartKey);
-      results.sort((a, b) => {
-        if (a.updatedAt !== b.updatedAt) return a.updatedAt < b.updatedAt ? -1 : 1;
-        return a.eventId < b.eventId ? -1 : a.eventId > b.eventId ? 1 : 0;
-      });
-      return results;
+      results.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+      const nextCursor = results.reduce(
+        (acc, ev) => (ev.seq && ev.seq > acc ? ev.seq : acc),
+        cursorN
+      );
+      return { events: results, nextCursor: String(nextCursor) };
     },
 
     async pruneExpiredArchives(accountDid) {

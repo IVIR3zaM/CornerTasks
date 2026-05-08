@@ -13,7 +13,7 @@ final class FakeTransport: SyncTransport, @unchecked Sendable {
     private(set) var tokenCalls: Int = 0
     private(set) var challengeCalls: Int = 0
     private(set) var pushBatches: [(accountDid: String, events: [SyncEvent], bearer: String)] = []
-    private(set) var pullCalls: [(accountDid: String, since: String, bearer: String)] = []
+    private(set) var pullCalls: [(accountDid: String, cursor: String, bearer: String)] = []
     var pushResponder: ([SyncEvent]) -> PushResponse = { evs in
         PushResponse(accepted: evs.map(\.eventId), rejected: [])
     }
@@ -40,11 +40,11 @@ final class FakeTransport: SyncTransport, @unchecked Sendable {
         return pushResponder(events)
     }
 
-    func pull(accountDid: String, since: String, bearer: String) async throws -> PullResponse {
+    func pull(accountDid: String, cursor: String, bearer: String) async throws -> PullResponse {
         if !pullFailures.isEmpty { throw pullFailures.removeFirst() }
-        pullCalls.append((accountDid, since, bearer))
+        pullCalls.append((accountDid, cursor, bearer))
         if !pullResponses.isEmpty { return pullResponses.removeFirst() }
-        return PullResponse(events: [], serverTime: ISO8601.format(Date()))
+        return PullResponse(events: [], nextCursor: cursor)
     }
 }
 
@@ -76,7 +76,7 @@ final class SyncEngineTests: XCTestCase {
             identity: identity,
             encryptionKey: encryptionKey,
             deviceId: deviceId,
-            lastSyncedAt: InMemoryLastSyncedAt()
+            cursor: InMemorySyncCursor()
         )
     }
 
@@ -179,7 +179,7 @@ final class SyncEngineTests: XCTestCase {
             ),
             encryptionKey: encryptionKey
         )
-        transport.pullResponses = [PullResponse(events: [event], serverTime: ISO8601.format(newer))]
+        transport.pullResponses = [PullResponse(events: [event], nextCursor: "1")]
 
         await engine.pullSince()
         XCTAssertEqual(store.activeTasks.first?.title, "remote-version")
@@ -201,7 +201,7 @@ final class SyncEngineTests: XCTestCase {
             ),
             encryptionKey: encryptionKey
         )
-        transport.pullResponses = [PullResponse(events: [stale], serverTime: ISO8601.format(Date()))]
+        transport.pullResponses = [PullResponse(events: [stale], nextCursor: "2")]
         await engine.pullSince()
         XCTAssertEqual(store.activeTasks.first?.title, "remote-version")
     }
@@ -230,7 +230,7 @@ final class SyncEngineTests: XCTestCase {
             ),
             encryptionKey: encryptionKey
         )
-        transport.pullResponses = [PullResponse(events: [event], serverTime: ISO8601.format(newer))]
+        transport.pullResponses = [PullResponse(events: [event], nextCursor: "1")]
 
         await engine.pullSince()
 

@@ -83,6 +83,12 @@ For `op="delete"`, the plaintext is `{}`.
 
 Per-field merging is **out of scope** for v0.2.0. A whole-task replacement is correct.
 
+### 5.1 Server-assigned pull sequence
+
+Independently of `updatedAt` — which is set by the originating client and so is subject to clock skew — the server assigns each accepted event a strictly monotonic per-account integer `seq` at write time. Pull uses `seq` (not `updatedAt`) for cursoring (§7.2). Clients never see `seq` directly; they round-trip an opaque `nextCursor` string returned by the server.
+
+A stale-rejected push (older `updatedAt` than the stored event) consumes a `seq` value that is then a gap in the log. Pull queries `seq > cursor`, so gaps are skipped automatically and never cause a missed event.
+
 ## 6. Archive cutoff
 
 - A task is "archived" once its plaintext `completedAt` is non-null.
@@ -124,19 +130,21 @@ Response body:
 Query parameters:
 
 - `accountDid` — required.
-- `since` — required. ISO 8601 UTC timestamp. Server returns events with `updatedAt >= since`.
+- `cursor` — required. Opaque server-issued cursor string. The bootstrap value is `"0"` (= "from the beginning of this account's event log"). On every subsequent pull, the client sends the `nextCursor` it received last time.
 
 Response body:
 
 ```json
 {
   "events": [ Event, ... ],
-  "serverTime": "2026-05-05T17:42:11.000Z"
+  "nextCursor": "147"
 }
 ```
 
-- `serverTime` is the server's clock at response time. Clients use it as the next `since` value to avoid relying on their own clock.
-- The events array is ordered by `updatedAt` ascending, with `eventId` ascending as tie-break — same ordering as conflict resolution (§5).
+- `nextCursor` is opaque to clients; treat it as a token. The server guarantees only that pulling with `cursor = nextCursor` returns every event the server has subsequently accepted, and nothing it returned previously.
+- The events array is ordered by the server-assigned `seq` (§5.1) ascending. Within a single push, that matches client-order arrival; across pushes, it matches the server's commit order.
+- If the cursor is non-numeric, the server replies `400 invalid_cursor`.
+- This is a **structural** cursor — it is independent of `updatedAt` and therefore of client clocks. There is no per-pull rewind window: once an event has been issued a `seq`, it is reachable from any cursor strictly less than that `seq`.
 
 ## 8. Authentication — DID-Auth → Bearer JWT
 
@@ -421,7 +429,7 @@ curl -X POST "$ApiUrl/v1/sync/push" \
 curl -G "$ApiUrl/v1/sync/pull" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   --data-urlencode "accountDid=did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSdiCnPMkF4eRpwFNGGq" \
-  --data-urlencode "since=2026-05-05T17:00:00.000Z"
+  --data-urlencode "cursor=0"
 ```
 
 The bearer token in `$ACCESS_TOKEN` carries the authenticated DID in its `sub` claim — the server cross-checks it against the `accountDid` query parameter and against every event's `accountDid` in a push body, rejecting mismatches with `403 did_mismatch`.
@@ -442,6 +450,6 @@ Response:
       "ciphertext": "k7Hn...=="
     }
   ],
-  "serverTime": "2026-05-05T17:55:02.314Z"
+  "nextCursor": "147"
 }
 ```

@@ -22,7 +22,8 @@ export interface PushResponse {
 
 export interface PullResponse {
   events: SyncEvent[];
-  serverTime: string;
+  /** Opaque server-issued cursor; pass back as `?cursor=` on the next pull. */
+  nextCursor: string;
 }
 
 export type SyncTransportError =
@@ -42,7 +43,7 @@ export interface SyncTransport {
   challenge(accountDid: string): Promise<ChallengeResponse>;
   token(accountDid: string, didJwt: string): Promise<TokenResponse>;
   push(accountDid: string, events: SyncEvent[], bearer: string): Promise<PushResponse>;
-  pull(accountDid: string, since: string, bearer: string): Promise<PullResponse>;
+  pull(accountDid: string, cursor: string, bearer: string): Promise<PullResponse>;
 }
 
 const stripTrailingSlash = (s: string): string => (s.endsWith('/') ? s.slice(0, -1) : s);
@@ -109,10 +110,10 @@ export class FetchTransport implements SyncTransport {
     return this.postJSON('/v1/sync/push', { accountDid, events }, bearer);
   }
 
-  async pull(accountDid: string, since: string, bearer: string): Promise<PullResponse> {
+  async pull(accountDid: string, cursor: string, bearer: string): Promise<PullResponse> {
     const url = new URL(this.baseURL + '/v1/sync/pull');
     url.searchParams.set('accountDid', accountDid);
-    url.searchParams.set('since', since);
+    url.searchParams.set('cursor', cursor);
     let response: Response;
     try {
       response = await this.fetcher(url.toString(), {

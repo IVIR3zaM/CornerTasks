@@ -16,17 +16,9 @@ import Foundation
 final class SyncEngine {
     static let archiveCutoff: TimeInterval = 60 * 24 * 60 * 60  // 60 days
 
-    /// Interim fix for the pull-cursor race: events whose client-set `updatedAt`
-    /// is older than the server's `serverTime` at our last pull but which arrive
-    /// at the server *after* that pull would otherwise be lost forever, since the
-    /// next pull would filter them out with `updatedAt >= since`. We rewind
-    /// `lastSyncedAt` by `cursorLookback` on every advance so those events come
-    /// back on the next round. `applyRemote` is idempotent under last-writer-wins,
-    /// so the redelivered events are absorbed harmlessly. Replace this with a
-    /// server-assigned monotonic cursor in a follow-up iteration; see README
-    /// "Known limitations". 5 minutes covers normal skew + the longest sync
-    /// interval users are likely to pick (see `Prefs.syncIntervalMaxSeconds`).
-    static let cursorLookback: TimeInterval = 5 * 60
+    /// Bootstrap value for the opaque server-assigned pull cursor. `"0"` means
+    /// "from the beginning of this account's event log".
+    static let initialCursor: String = "0"
 
     private let store: TaskStore
     private let transport: SyncTransport
@@ -35,7 +27,7 @@ final class SyncEngine {
     private let encryptionKey: SymmetricKey
     private let deviceId: String
     private let now: () -> Date
-    private let lastSyncedAtStorage: LastSyncedAtStorage
+    private let cursorStorage: SyncCursorStorage
     /// Reads the user-configured sync cadence, in seconds. Defaults to `Prefs.syncIntervalSeconds`.
     private let intervalSeconds: () -> TimeInterval
     /// Set + cleared by the engine. Persisted in `Prefs.pendingFullResync` for callers
@@ -52,7 +44,7 @@ final class SyncEngine {
          identity: Identity,
          encryptionKey: SymmetricKey,
          deviceId: String,
-         lastSyncedAt: LastSyncedAtStorage = UserDefaultsLastSyncedAt(),
+         cursor: SyncCursorStorage = UserDefaultsSyncCursor(),
          intervalSeconds: @escaping () -> TimeInterval = { TimeInterval(Prefs.syncIntervalSeconds) },
          pendingFullResync: @escaping () -> Bool = { Prefs.pendingFullResync },
          clearPendingFullResync: @escaping () -> Void = { Prefs.pendingFullResync = false },
@@ -63,7 +55,7 @@ final class SyncEngine {
         self.encryptionKey = encryptionKey
         self.deviceId = deviceId
         self.now = now
-        self.lastSyncedAtStorage = lastSyncedAt
+        self.cursorStorage = cursor
         self.intervalSeconds = intervalSeconds
         self.pendingFullResync = pendingFullResync
         self.clearPendingFullResync = clearPendingFullResync
@@ -176,7 +168,7 @@ final class SyncEngine {
     /// left out; they are dropped from both ends by the retention policy.
     func performFullResync() async {
         store.clearSyncQueue()
-        lastSyncedAtStorage.value = ISO8601.format(Date(timeIntervalSince1970: 0))
+        cursorStorage.value = Self.initialCursor
         let pulled = await pullForResync()
         let cutoff = now().addingTimeInterval(-Self.archiveCutoff)
         for snapshot in store.liveSnapshots() {
@@ -188,36 +180,38 @@ final class SyncEngine {
     }
 
     private func pullForResync() async -> Set<String> {
-        let since = lastSyncedAtStorage.value ?? defaultSince()
+        let cursor = cursorStorage.value ?? Self.initialCursor
         do {
-            let response = try await pullWithAuth(since: since)
+            let response = try await pullWithAuth(cursor: cursor)
             var pulled: Set<String> = []
             for event in response.events {
                 applyRemote(event)
                 pulled.insert(event.taskId)
             }
-            lastSyncedAtStorage.value = cursorAfter(serverTime: response.serverTime)
+            cursorStorage.value = response.nextCursor
             return pulled
         } catch {
             return []
         }
     }
 
-    /// Fetches events with `updatedAt >= lastSyncedAt`, applies them last-writer-wins,
-    /// then advances `lastSyncedAt` to the server's clock from the response.
+    /// Fetches events with `seq > cursor`, applies them last-writer-wins, then
+    /// advances the persisted cursor to the `nextCursor` from the response. The
+    /// cursor is opaque server state; the protocol guarantees only that
+    /// `seq > cursor` returns every event the server has accepted since.
     func pullSince() async {
-        let since = lastSyncedAtStorage.value ?? defaultSince()
-        DiagLog.shared.record("pull.start", ["since": since])
+        let cursor = cursorStorage.value ?? Self.initialCursor
+        DiagLog.shared.record("pull.start", ["cursor": cursor])
         do {
-            let response = try await pullWithAuth(since: since)
+            let response = try await pullWithAuth(cursor: cursor)
             DiagLog.shared.record("pull.response", [
                 "events": response.events.count,
-                "serverTime": response.serverTime
+                "nextCursor": response.nextCursor
             ])
             for event in response.events {
                 applyRemote(event)
             }
-            lastSyncedAtStorage.value = cursorAfter(serverTime: response.serverTime)
+            cursorStorage.value = response.nextCursor
         } catch {
             DiagLog.shared.record("pull.error", ["error": String(describing: error)])
             // Network or auth failure — try again next tick.
@@ -237,14 +231,14 @@ final class SyncEngine {
         }
     }
 
-    private func pullWithAuth(since: String) async throws -> PullResponse {
+    private func pullWithAuth(cursor: String) async throws -> PullResponse {
         let token = try await auth.bearer()
         do {
-            return try await transport.pull(accountDid: identity.accountDid, since: since, bearer: token)
+            return try await transport.pull(accountDid: identity.accountDid, cursor: cursor, bearer: token)
         } catch SyncTransportError.tokenExpired, SyncTransportError.badToken {
             await auth.invalidate()
             let fresh = try await auth.bearer()
-            return try await transport.pull(accountDid: identity.accountDid, since: since, bearer: fresh)
+            return try await transport.pull(accountDid: identity.accountDid, cursor: cursor, bearer: fresh)
         }
     }
 
@@ -375,28 +369,24 @@ final class SyncEngine {
         }
     }
 
-    private func defaultSince() -> String {
-        ISO8601.format(Date(timeIntervalSince1970: 0))
-    }
-
-    /// Returns `serverTime` rewound by `cursorLookback`. Clamped at the epoch so
-    /// we never produce a pre-1970 ISO string. See `cursorLookback` for why.
-    private func cursorAfter(serverTime: String) -> String {
-        guard let parsed = ISO8601.parse(serverTime) else { return serverTime }
-        let rewound = parsed.addingTimeInterval(-Self.cursorLookback)
-        let floored = max(rewound, Date(timeIntervalSince1970: 0))
-        return ISO8601.format(floored)
-    }
 }
 
-// MARK: - lastSyncedAt persistence
+// MARK: - Pull cursor persistence
 
-protocol LastSyncedAtStorage: AnyObject {
+/// Persists the opaque server-issued pull cursor between launches. The cursor
+/// is the bearer of progress through the per-account event log; treat it as an
+/// opaque token even though the current implementation happens to be a numeric
+/// string.
+protocol SyncCursorStorage: AnyObject {
     var value: String? { get set }
 }
 
-final class UserDefaultsLastSyncedAt: LastSyncedAtStorage {
-    private let key = "cornertasks.sync.lastSyncedAt"
+final class UserDefaultsSyncCursor: SyncCursorStorage {
+    /// New key for the server-assigned cursor. The previous wall-clock-based
+    /// `cornertasks.sync.lastSyncedAt` key is intentionally not migrated:
+    /// missing cursor → `"0"` triggers one full re-pull on first launch after
+    /// upgrade, which is idempotent under last-writer-wins.
+    private let key = "cornertasks.sync.cursor"
     var value: String? {
         get { UserDefaults.standard.string(forKey: key) }
         set {
@@ -406,7 +396,7 @@ final class UserDefaultsLastSyncedAt: LastSyncedAtStorage {
     }
 }
 
-final class InMemoryLastSyncedAt: LastSyncedAtStorage {
+final class InMemorySyncCursor: SyncCursorStorage {
     var value: String?
     init(_ initial: String? = nil) { self.value = initial }
 }

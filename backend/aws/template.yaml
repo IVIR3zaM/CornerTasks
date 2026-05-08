@@ -62,19 +62,22 @@ Resources:
           AttributeType: S
         - AttributeName: sk
           AttributeType: S
-        - AttributeName: updatedAt
-          AttributeType: S
+        - AttributeName: seq
+          AttributeType: N
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
       GlobalSecondaryIndexes:
-        - IndexName: ByUpdatedAt
+        # Pull cursor index. `seq` is a server-assigned monotonic per-account
+        # sequence number; clients pass an opaque numeric cursor and the
+        # handler queries `seq > :cursor` against this GSI.
+        - IndexName: BySeq
           KeySchema:
             - AttributeName: pk
               KeyType: HASH
-            - AttributeName: updatedAt
+            - AttributeName: seq
               KeyType: RANGE
           Projection:
             ProjectionType: ALL

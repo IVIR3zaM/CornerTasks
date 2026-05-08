@@ -181,10 +181,14 @@ async function main(): Promise<void> {
   console.log('sync-doctor: pushed event accepted');
 
   // 4. pull and assert ciphertext round-trip
-  const sinceParam = encodeURIComponent(new Date(Date.parse(updatedAt) - 1000).toISOString());
-  const pull = await getJson(`${apiUrl}/v1/sync/pull?accountDid=${encodeURIComponent(did)}&since=${sinceParam}`, accessToken);
+  const pull = await getJson(`${apiUrl}/v1/sync/pull?accountDid=${encodeURIComponent(did)}&cursor=0`, accessToken);
   if (pull.status !== 200) fail('GET /v1/sync/pull', pull.status, pull.body);
   const events: any[] = pull.body.events ?? [];
+  if (typeof pull.body.nextCursor !== 'string' || !/^[0-9]+$/.test(pull.body.nextCursor)) {
+    console.error('sync-doctor: pull response is missing a numeric nextCursor');
+    console.error(JSON.stringify(pull.body, null, 2));
+    process.exit(1);
+  }
   const echoed = events.find((e) => e.eventId === eventId);
   if (!echoed) {
     console.error('sync-doctor: pushed event was not returned by pull');

@@ -3,9 +3,9 @@ import { IDBFactory } from 'fake-indexeddb';
 import { TaskStore } from '../src/storage/TaskStore';
 import {
   SyncEngine,
-  inMemoryLastSyncedAt,
+  inMemorySyncCursor,
   noopVisibilityHost,
-  type LastSyncedAtStorage,
+  type SyncCursorStorage,
   type VisibilityHost,
 } from '../src/sync/SyncEngine';
 import {
@@ -35,7 +35,7 @@ class FakeTransport implements SyncTransport {
   challengeCalls = 0;
   tokenCalls = 0;
   pushBatches: { accountDid: string; events: SyncEvent[]; bearer: string }[] = [];
-  pullCalls: { accountDid: string; since: string; bearer: string }[] = [];
+  pullCalls: { accountDid: string; cursor: string; bearer: string }[] = [];
   pushFailures: SyncTransportError[] = [];
   pullFailures: SyncTransportError[] = [];
   pushResponder: (events: SyncEvent[]) => PushResponse = (events) => ({
@@ -60,11 +60,11 @@ class FakeTransport implements SyncTransport {
     this.pushBatches.push({ accountDid, events, bearer });
     return this.pushResponder(events);
   }
-  async pull(accountDid: string, since: string, bearer: string): Promise<PullResponse> {
+  async pull(accountDid: string, cursor: string, bearer: string): Promise<PullResponse> {
     if (this.pullFailures.length > 0) throw this.pullFailures.shift();
-    this.pullCalls.push({ accountDid, since, bearer });
+    this.pullCalls.push({ accountDid, cursor, bearer });
     if (this.pullResponses.length > 0) return this.pullResponses.shift()!;
-    return { events: [], serverTime: isoFormat(new Date()) };
+    return { events: [], nextCursor: cursor };
   }
 }
 
@@ -88,7 +88,7 @@ interface Harness {
   transport: FakeTransport;
   identity: Identity;
   encryptionKey: Uint8Array;
-  lastSyncedAt: LastSyncedAtStorage;
+  cursor: SyncCursorStorage;
 }
 
 const setupHarness = async (overrides: { visibility?: VisibilityHost } = {}): Promise<Harness> => {
@@ -99,19 +99,19 @@ const setupHarness = async (overrides: { visibility?: VisibilityHost } = {}): Pr
   const identity = await fromBip39Seed(seed);
   const encryptionKey = await encryptionKeyBytes(seed);
   const transport = new FakeTransport();
-  const lastSyncedAt = inMemoryLastSyncedAt();
+  const cursor = inMemorySyncCursor();
   const engine = new SyncEngine({
     store,
     transport,
     identity,
     encryptionKey,
     deviceId: 'device-fixed-001',
-    lastSyncedAt,
+    cursor,
     visibility: overrides.visibility ?? noopVisibilityHost(),
     setInterval: () => null,
     clearInterval: () => {},
   });
-  return { store, engine, transport, identity, encryptionKey, lastSyncedAt };
+  return { store, engine, transport, identity, encryptionKey, cursor };
 };
 
 beforeEach(() => {
@@ -226,7 +226,7 @@ describe('SyncEngine — pull merges (last-writer-wins)', () => {
       plaintext: { title: 'remote-version', createdAt: local.createdAt, completedAt: null, dueDate: null, order: local.order },
       encryptionKey: h.encryptionKey,
     });
-    h.transport.pullResponses = [{ events: [newerEvent], serverTime: isoFormat(newer) }];
+    h.transport.pullResponses = [{ events: [newerEvent], nextCursor: '1' }];
     await h.engine.pullSince();
     expect((await h.store.activeTasks())[0].title).toBe('remote-version');
 
@@ -240,7 +240,7 @@ describe('SyncEngine — pull merges (last-writer-wins)', () => {
       plaintext: { title: 'stale-loser', createdAt: local.createdAt, completedAt: null, dueDate: null, order: local.order },
       encryptionKey: h.encryptionKey,
     });
-    h.transport.pullResponses = [{ events: [olderEvent], serverTime: isoFormat(new Date()) }];
+    h.transport.pullResponses = [{ events: [olderEvent], nextCursor: '2' }];
     await h.engine.pullSince();
     expect((await h.store.activeTasks())[0].title).toBe('remote-version');
   });
@@ -273,11 +273,11 @@ describe('SyncEngine — pull merges (last-writer-wins)', () => {
       encryptionKey: h.encryptionKey,
     });
     // Pull in lower-then-higher order; higher must win.
-    h.transport.pullResponses = [{ events: [lower, higher], serverTime: isoFormat(sameTime) }];
+    h.transport.pullResponses = [{ events: [lower, higher], nextCursor: '1' }];
     await h.engine.pullSince();
     expect((await h.store.activeTasks())[0].title).toBe('higher-id');
 
-    h.transport.pullResponses = [{ events: [lower], serverTime: isoFormat(new Date()) }];
+    h.transport.pullResponses = [{ events: [lower], nextCursor: '2' }];
     await h.engine.pullSince();
     expect((await h.store.activeTasks())[0].title).toBe('higher-id');
   });
@@ -300,7 +300,7 @@ describe('SyncEngine — taskId casing (regression)', () => {
       plaintext: { title: 'renamed-from-uppercase', createdAt: local.createdAt, completedAt: null, dueDate: null, order: local.order },
       encryptionKey: h.encryptionKey,
     });
-    h.transport.pullResponses = [{ events: [event], serverTime: isoFormat(newer) }];
+    h.transport.pullResponses = [{ events: [event], nextCursor: '1' }];
     await h.engine.pullSince();
 
     const active = await h.store.activeTasks();

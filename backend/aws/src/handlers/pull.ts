@@ -11,24 +11,25 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
   const qs = event.queryStringParameters ?? {};
   const accountDid = qs.accountDid;
-  const since = qs.since;
+  // Opaque server-issued cursor; "0" or absent means "from the beginning".
+  const cursor = qs.cursor ?? '0';
   if (!accountDid) {
     return errorResponse(400, 'bad_request', 'invalid_did.no_account_did', 'qs object: ' + JSON.stringify(qs));
   }
   if (!DidKey.safeParse(accountDid).success) {
     return errorResponse(400, 'bad_request', 'invalid_did.malformed_account_did', 'accountDid: ' + accountDid);
   }
-  if (!since) return errorResponse(400, 'bad_request', 'missing_since');
-  const sinceMs = Date.parse(since);
-  if (Number.isNaN(sinceMs)) return errorResponse(400, 'bad_request', 'invalid_since');
+  if (!/^[0-9]+$/.test(cursor)) {
+    return errorResponse(400, 'bad_request', 'invalid_cursor', 'cursor: ' + cursor);
+  }
 
   const subjectErr = assertSubjectMatches(auth.subject, accountDid);
   if (subjectErr) return subjectErr;
 
-  const events = await getStore().queryEventsSince(accountDid, sinceMs);
+  const result = await getStore().queryEventsAfter(accountDid, cursor);
   const resp: PullResponse = {
-    events: events.map(({ archivedCompletedAt: _ignored, ...rest }) => rest),
-    serverTime: new Date().toISOString()
+    events: result.events.map(({ archivedCompletedAt: _ignored, seq: _ignoredSeq, ...rest }) => rest),
+    nextCursor: result.nextCursor
   };
   return json(200, resp);
 }

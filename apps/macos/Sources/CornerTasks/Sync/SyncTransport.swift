@@ -22,7 +22,8 @@ struct PushResponse: Decodable, Equatable {
 
 struct PullResponse: Decodable, Equatable {
     let events: [SyncEvent]
-    let serverTime: String
+    /// Opaque server-issued cursor; pass back as `?cursor=` on the next pull.
+    let nextCursor: String
 }
 
 enum SyncTransportError: Error, Equatable {
@@ -40,7 +41,7 @@ protocol SyncTransport: AnyObject {
     func challenge(accountDid: String) async throws -> ChallengeResponse
     func token(accountDid: String, didJwt: String) async throws -> TokenResponse
     func push(accountDid: String, events: [SyncEvent], bearer: String) async throws -> PushResponse
-    func pull(accountDid: String, since: String, bearer: String) async throws -> PullResponse
+    func pull(accountDid: String, cursor: String, bearer: String) async throws -> PullResponse
 }
 
 /// Talks to a real `ApiUrl`. The auth-failure cases are preserved so the
@@ -73,11 +74,11 @@ final class URLSessionSyncTransport: SyncTransport {
         return try await postJSON(path: "/v1/sync/push", body: body, bearer: bearer, decode: PushResponse.self)
     }
 
-    func pull(accountDid: String, since: String, bearer: String) async throws -> PullResponse {
+    func pull(accountDid: String, cursor: String, bearer: String) async throws -> PullResponse {
         var comps = URLComponents(url: baseURL.appendingPathComponent("v1/sync/pull"), resolvingAgainstBaseURL: false)!
         comps.queryItems = [
             URLQueryItem(name: "accountDid", value: accountDid),
-            URLQueryItem(name: "since", value: since)
+            URLQueryItem(name: "cursor", value: cursor)
         ]
         guard let url = comps.url else { throw SyncTransportError.invalidURL }
         var req = URLRequest(url: url)

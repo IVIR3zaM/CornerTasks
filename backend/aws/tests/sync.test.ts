@@ -138,13 +138,13 @@ describe('push handler', () => {
 });
 
 describe('pull handler', () => {
-  test('returns events with updatedAt >= since, ordered ascending', async () => {
+  test('returns events newer than the given cursor, ordered by server-assigned seq', async () => {
     const kp = await generateKeyPair(16);
     const accessToken = await authenticate(kp);
-    const e1 = makeEvent(kp.did, { updatedAt: '2026-05-05T10:00:00.000Z', eventId: '11111111-1111-1111-1111-111111111111' });
-    const e2 = makeEvent(kp.did, { updatedAt: '2026-05-05T11:00:00.000Z', eventId: '22222222-2222-2222-2222-222222222222' });
-    const old = makeEvent(kp.did, { updatedAt: '2026-05-01T00:00:00.000Z', eventId: '33333333-3333-3333-3333-333333333333' });
-    for (const ev of [e1, e2, old]) {
+    const e1 = makeEvent(kp.did, { taskId: '11111111-1111-1111-1111-111111111111', eventId: '11111111-1111-1111-1111-111111111111' });
+    const e2 = makeEvent(kp.did, { taskId: '22222222-2222-2222-2222-222222222222', eventId: '22222222-2222-2222-2222-222222222222' });
+    const e3 = makeEvent(kp.did, { taskId: '33333333-3333-3333-3333-333333333333', eventId: '33333333-3333-3333-3333-333333333333' });
+    for (const ev of [e1, e2, e3]) {
       await push(
         fakeEvent({
           method: 'POST',
@@ -154,20 +154,52 @@ describe('pull handler', () => {
         })
       );
     }
+    const first = asStructured(
+      await pull(
+        fakeEvent({
+          method: 'GET',
+          path: '/v1/sync/pull',
+          headers: { authorization: `Bearer ${accessToken}` },
+          query: { accountDid: kp.did, cursor: '0' }
+        })
+      )
+    );
+    expect(first.statusCode).toBe(200);
+    const firstBody = parseJson(first) as { events: { eventId: string }[]; nextCursor: string };
+    expect(firstBody.events.map((e) => e.eventId)).toEqual([e1.eventId, e2.eventId, e3.eventId]);
+    expect(Number(firstBody.nextCursor)).toBeGreaterThan(0);
+
+    // A follow-up pull with the returned cursor must return zero events.
+    const followup = asStructured(
+      await pull(
+        fakeEvent({
+          method: 'GET',
+          path: '/v1/sync/pull',
+          headers: { authorization: `Bearer ${accessToken}` },
+          query: { accountDid: kp.did, cursor: firstBody.nextCursor }
+        })
+      )
+    );
+    const followupBody = parseJson(followup) as { events: unknown[]; nextCursor: string };
+    expect(followupBody.events).toEqual([]);
+    expect(followupBody.nextCursor).toBe(firstBody.nextCursor);
+  });
+
+  test('rejects an invalid cursor with 400 invalid_cursor', async () => {
+    const kp = await generateKeyPair(40);
+    const accessToken = await authenticate(kp);
     const r = asStructured(
       await pull(
         fakeEvent({
           method: 'GET',
           path: '/v1/sync/pull',
           headers: { authorization: `Bearer ${accessToken}` },
-          query: { accountDid: kp.did, since: '2026-05-05T00:00:00.000Z' }
+          query: { accountDid: kp.did, cursor: 'not-a-number' }
         })
       )
     );
-    expect(r.statusCode).toBe(200);
-    const body = parseJson(r) as { events: { eventId: string }[]; serverTime: string };
-    expect(body.events.map((e) => e.eventId)).toEqual([e1.eventId, e2.eventId]);
-    expect(Date.parse(body.serverTime)).toBeGreaterThan(0);
+    expect(r.statusCode).toBe(400);
+    expect(parseJson(r)).toMatchObject({ reason: 'invalid_cursor' });
   });
 
   test('archive cutoff: events with archivedCompletedAt > 60 days are filtered', async () => {
@@ -194,7 +226,7 @@ describe('pull handler', () => {
           method: 'GET',
           path: '/v1/sync/pull',
           headers: { authorization: `Bearer ${accessToken}` },
-          query: { accountDid: kp.did, since: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() }
+          query: { accountDid: kp.did, cursor: '0' }
         })
       )
     );
@@ -213,7 +245,7 @@ describe('Bearer middleware', () => {
           method: 'GET',
           path: '/v1/sync/pull',
           headers: { authorization: `Bearer ${accessToken}` },
-          query: { accountDid: kp.did, since: '2026-01-01T00:00:00.000Z' }
+          query: { accountDid: kp.did, cursor: '0' }
         })
       )
     );
@@ -227,7 +259,7 @@ describe('Bearer middleware', () => {
         fakeEvent({
           method: 'GET',
           path: '/v1/sync/pull',
-          query: { accountDid: kp.did, since: '2026-01-01T00:00:00.000Z' }
+          query: { accountDid: kp.did, cursor: '0' }
         })
       )
     );
@@ -246,7 +278,7 @@ describe('Bearer middleware', () => {
           method: 'GET',
           path: '/v1/sync/pull',
           headers: { authorization: `Bearer ${tampered}` },
-          query: { accountDid: kp.did, since: '2026-01-01T00:00:00.000Z' }
+          query: { accountDid: kp.did, cursor: '0' }
         })
       )
     );
@@ -268,7 +300,7 @@ describe('Bearer middleware', () => {
           method: 'GET',
           path: '/v1/sync/pull',
           headers: { authorization: `Bearer ${expired}` },
-          query: { accountDid: kp.did, since: '2026-01-01T00:00:00.000Z' }
+          query: { accountDid: kp.did, cursor: '0' }
         })
       )
     );
@@ -314,7 +346,7 @@ describe('round-trip integration (challenge → token → push → pull)', () =>
           method: 'GET',
           path: '/v1/sync/pull',
           headers: { authorization: `Bearer ${accessToken}` },
-          query: { accountDid: kp.did, since: '2026-05-01T00:00:00.000Z' }
+          query: { accountDid: kp.did, cursor: '0' }
         })
       )
     );

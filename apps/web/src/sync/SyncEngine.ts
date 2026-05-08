@@ -17,7 +17,8 @@ import { AuthSession } from './authSession';
 import type { SyncTransport, SyncTransportError } from './syncTransport';
 import { isSyncTransportError } from './syncTransport';
 
-export interface LastSyncedAtStorage {
+/** Persists the opaque server-issued pull cursor between sessions. */
+export interface SyncCursorStorage {
   get(): string | null;
   set(v: string | null): void;
 }
@@ -29,37 +30,24 @@ export interface VisibilityHost {
 
 export const ARCHIVE_CUTOFF_MS = 60 * 24 * 60 * 60 * 1000;
 
-/** Interim fix for the pull-cursor race: events whose client-set `updatedAt`
- *  is older than the server's `serverTime` at our last pull but which arrive
- *  at the server *after* that pull would otherwise be lost forever. We rewind
- *  `lastSyncedAt` by `CURSOR_LOOKBACK_MS` on every advance so those events
- *  come back on the next round. `applyRemote` is idempotent under
- *  last-writer-wins, so the redelivery is harmless. Replace with a
- *  server-assigned monotonic cursor in a follow-up iteration; see README
- *  "Known limitations". */
-export const CURSOR_LOOKBACK_MS = 5 * 60 * 1000;
+/** Bootstrap cursor — "from the beginning of this account's event log". */
+export const INITIAL_CURSOR = '0';
 
-const cursorAfter = (serverTime: string): string => {
-  const t = Date.parse(serverTime);
-  if (Number.isNaN(t)) return serverTime;
-  return new Date(Math.max(0, t - CURSOR_LOOKBACK_MS)).toISOString();
-};
 /** Test/legacy default. Real cadence is now `Prefs.syncIntervalSeconds`. */
 export const DEFAULT_SYNC_INTERVAL_MS = 60_000;
 
-const LS_LAST_SYNCED = 'cornertasks.sync.lastSyncedAt';
+const LS_CURSOR = 'cornertasks.sync.cursor';
 const LS_DEVICE_ID = 'cornertasks.sync.deviceId';
-const EPOCH_ZERO_ISO = new Date(0).toISOString();
 
-export const localStorageLastSyncedAt = (): LastSyncedAtStorage => ({
-  get: () => localStorage.getItem(LS_LAST_SYNCED),
+export const localStorageSyncCursor = (): SyncCursorStorage => ({
+  get: () => localStorage.getItem(LS_CURSOR),
   set: (v) => {
-    if (v === null) localStorage.removeItem(LS_LAST_SYNCED);
-    else localStorage.setItem(LS_LAST_SYNCED, v);
+    if (v === null) localStorage.removeItem(LS_CURSOR);
+    else localStorage.setItem(LS_CURSOR, v);
   },
 });
 
-export const inMemoryLastSyncedAt = (initial?: string): LastSyncedAtStorage => {
+export const inMemorySyncCursor = (initial?: string): SyncCursorStorage => {
   let v: string | null = initial ?? null;
   return { get: () => v, set: (x) => { v = x; } };
 };
@@ -114,7 +102,7 @@ export interface SyncEngineOptions {
   identity: Identity;
   encryptionKey: Uint8Array;
   deviceId: string;
-  lastSyncedAt?: LastSyncedAtStorage;
+  cursor?: SyncCursorStorage;
   visibility?: VisibilityHost;
   now?: () => Date;
   /** User-configured cadence in ms; same value drives push and pull timers. */
@@ -134,7 +122,7 @@ export class SyncEngine {
   private readonly identity: Identity;
   private readonly encryptionKey: Uint8Array;
   private readonly deviceId: string;
-  private readonly lastSyncedAt: LastSyncedAtStorage;
+  private readonly cursor: SyncCursorStorage;
   private readonly visibility: VisibilityHost;
   private readonly now: () => Date;
   private readonly setIntervalImpl: (fn: () => void, ms: number) => unknown;
@@ -154,7 +142,7 @@ export class SyncEngine {
     this.identity = opts.identity;
     this.encryptionKey = opts.encryptionKey;
     this.deviceId = opts.deviceId;
-    this.lastSyncedAt = opts.lastSyncedAt ?? localStorageLastSyncedAt();
+    this.cursor = opts.cursor ?? localStorageSyncCursor();
     this.visibility = opts.visibility ?? documentVisibilityHost();
     this.now = opts.now ?? (() => new Date());
     this.setIntervalImpl =
@@ -272,7 +260,7 @@ export class SyncEngine {
    *  — they are dropped from both ends by the retention policy. */
   async performFullResync(): Promise<void> {
     await this.store.clearSyncQueue();
-    this.lastSyncedAt.set(EPOCH_ZERO_ISO);
+    this.cursor.set(INITIAL_CURSOR);
     const pulled = await this.pullForResync();
     const cutoff = this.now().getTime() - ARCHIVE_CUTOFF_MS;
     for (const snapshot of await this.store.liveSnapshots()) {
@@ -284,15 +272,15 @@ export class SyncEngine {
   }
 
   private async pullForResync(): Promise<Set<string>> {
-    const since = this.lastSyncedAt.get() ?? EPOCH_ZERO_ISO;
+    const cursor = this.cursor.get() ?? INITIAL_CURSOR;
     try {
-      const response = await this.pullWithAuth(since);
+      const response = await this.pullWithAuth(cursor);
       const pulled = new Set<string>();
       for (const event of response.events) {
         await this.applyRemote(event);
         pulled.add(event.taskId);
       }
-      this.lastSyncedAt.set(cursorAfter(response.serverTime));
+      this.cursor.set(response.nextCursor);
       console.info('[CornerTasks sync] resync pull complete', { pulled: pulled.size });
       return pulled;
     } catch (err) {
@@ -302,13 +290,13 @@ export class SyncEngine {
   }
 
   async pullSince(): Promise<void> {
-    const since = this.lastSyncedAt.get() ?? EPOCH_ZERO_ISO;
+    const cursor = this.cursor.get() ?? INITIAL_CURSOR;
     try {
-      const response = await this.pullWithAuth(since);
+      const response = await this.pullWithAuth(cursor);
       for (const event of response.events) {
         await this.applyRemote(event);
       }
-      this.lastSyncedAt.set(cursorAfter(response.serverTime));
+      this.cursor.set(response.nextCursor);
     } catch (err) {
       console.warn('[CornerTasks sync] pull failed; will retry next tick', err);
     }
@@ -330,15 +318,15 @@ export class SyncEngine {
     }
   }
 
-  private async pullWithAuth(since: string) {
+  private async pullWithAuth(cursor: string) {
     const token = await this.authSession.bearer();
     try {
-      return await this.transport.pull(this.identity.accountDid, since, token);
+      return await this.transport.pull(this.identity.accountDid, cursor, token);
     } catch (e) {
       if (isAuthRetryable(e)) {
         this.authSession.invalidate();
         const fresh = await this.authSession.bearer();
-        return await this.transport.pull(this.identity.accountDid, since, fresh);
+        return await this.transport.pull(this.identity.accountDid, cursor, fresh);
       }
       throw e;
     }
