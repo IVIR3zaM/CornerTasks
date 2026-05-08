@@ -2,25 +2,37 @@
 
 **Version: v0.2.0**
 
-A tiny task widget. v0.1.0 ships a macOS app that lives as a vertical strip pinned to the right edge of your screen. v0.2.0 adds a mobile-first web app, an end-to-end-encrypted AWS backend, and sync between devices.
+A tiny task widget. CornerTasks ships as a macOS app (a vertical strip pinned to the right edge of your screen) and a mobile-first web app. Cloud sync between devices is opt-in and end-to-end encrypted; if you don't want sync you don't get any network calls.
 
-## Features (v0.1.0, macOS)
+## Features
 
-- Always-on-top side panel running the full height of the screen
-- Add tasks quickly, double-click to edit
+**Both apps**
+
+- Add tasks quickly, double-click (or tap) to edit
 - Created date shown on every active task
-- Optional due date per task (popover date picker), with color-coded states:
+- Optional due date per task, with color-coded states:
   - **Red** — overdue
   - **Orange** — due today
   - **Yellow** — due tomorrow
   - **Blue** — due later
-- Tick a task to move it to Archive (records added/completed/due dates)
-- Drag and drop active tasks to reorder them
+- Tick a task to move it to Archive (records added / completed / due dates)
+- Reorder active tasks by drag and drop
+- Optional opt-in cloud sync (see below) — same protocol on both sides
+
+**macOS**
+
+- Always-on-top side panel running the full height of the screen
 - Local SQLite storage (existing JSON data is migrated automatically)
 - Dock icon shown by default; in-app setting to hide it (menu bar icon stays)
-- Menu bar icon to show/hide the panel
+- Menu bar icon to show / hide the panel
 
-## Coming in v0.2.0
+**Web (mobile-first)**
+
+- IndexedDB storage, fully offline-capable
+- Same color-coded due-date logic as macOS
+- Camera-based QR scan for importing a key from another device
+
+## Cloud sync (opt-in, v0.2.0+)
 
 - **Web app** (mobile-first) hosted on S3 + CloudFront, with the same feature set as the macOS app.
 - **AWS serverless backend** (TypeScript SAM + DynamoDB) for optional cross-device sync.
@@ -31,7 +43,7 @@ A tiny task widget. v0.1.0 ships a macOS app that lives as a vertical strip pinn
 - **Enable flow**: *Generate new key* (new account) or *Import existing key* via mnemonic (macOS + web) or by scanning a QR from another CornerTasks device (web only — macOS shows the QR). A prominent red warning makes clear that importing merges the local tasks into the imported account.
 - **DID and mnemonic export**: view the DID and the mnemonic in both apps; show a QR of the mnemonic on macOS for the web app to scan.
 
-The full plan lives in [`ITERATIONS.md`](ITERATIONS.md). It is split so that each iteration is independently mergeable.
+Full version history is in [`CHANGELOG.md`](CHANGELOG.md). The v0.2.0 work plan that built this is in [`ITERATIONS.md`](ITERATIONS.md).
 
 ## How private is cloud sync?
 
@@ -79,7 +91,7 @@ Full IAM/permissions list and the optional GitHub Actions OIDC deploy template l
 └── ITERATIONS.md — ordered v0.2.0 work plan
 ```
 
-In v0.1.0 the macOS app lived at the repo root. Iteration 2 of v0.2.0 moved it under `apps/macos/`.
+In v0.1.0 the macOS app lived at the repo root; v0.2.0 moved it under `apps/macos/` alongside the new `apps/web/` and `backend/aws/` trees.
 
 ## Requirements
 
@@ -118,7 +130,7 @@ open apps/macos/Package.swift
 cd apps/macos
 ./build.sh                           # host arch only — fast local dev
 UNIVERSAL=1 ./build.sh               # universal arm64 + x86_64 (needs full Xcode)
-VERSION=0.1.0 UNIVERSAL=1 ./build.sh # also stamp Info.plist with a version
+VERSION=0.2.0 UNIVERSAL=1 ./build.sh # also stamp Info.plist with a version
 ```
 
 This generates the `.icns` from `icon.png`, builds the release binary, assembles `CornerTasks.app`, ad-hoc signs it, and writes the DMG to `release/`. `build.sh` runs `lipo -info` at the end so you can confirm both slices are present.
@@ -160,6 +172,8 @@ If a `tasks.json` from an older version is present, it is migrated on first laun
 Licensed under the [Apache License 2.0](LICENSE).
 
 ## Releases
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 | Version | Notes |
 | --- | --- |
