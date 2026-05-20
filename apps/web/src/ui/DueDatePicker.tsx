@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef } from 'react';
 import { DueColor, DueStatus } from '../models/DueStatus';
 import { CalendarIcon, CalendarPlusIcon } from './icons';
 
@@ -23,74 +23,44 @@ const fromInputValue = (s: string): Date | null => {
 };
 
 export function DueDatePicker({ due, status, onSet }: Props) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<string>(due ? toInputValue(due) : toInputValue(new Date()));
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent): void => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const color = due ? DueColor[status] : 'var(--muted)';
 
-  const onOpen = (): void => {
-    setDraft(due ? toInputValue(due) : toInputValue(new Date()));
-    setOpen(true);
-  };
-
-  const onSave = (): void => {
-    const d = fromInputValue(draft);
-    onSet(d);
-    setOpen(false);
-  };
-
-  const onClear = (): void => {
-    onSet(null);
-    setOpen(false);
+  const openPicker = (): void => {
+    const el = inputRef.current;
+    if (!el) return;
+    if (typeof el.showPicker === 'function') {
+      el.showPicker();
+    } else {
+      el.focus();
+      el.click();
+    }
   };
 
   return (
-    <div className="due-picker" ref={wrapRef}>
+    <div className="due-picker">
       <button
         type="button"
         className="icon-btn calendar-btn"
         style={{ color }}
-        onClick={onOpen}
+        onClick={openPicker}
         aria-label={due ? 'Change due date' : 'Set due date'}
       >
         {due ? <CalendarIcon /> : <CalendarPlusIcon />}
       </button>
-
-      {open && (
-        <div className="popover" role="dialog">
-          <input
-            type="date"
-            className="date-input"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            autoFocus
-          />
-          <div className="popover-actions">
-            {due && (
-              <button type="button" className="btn-text danger" onClick={onClear}>
-                Clear
-              </button>
-            )}
-            <span className="spacer" />
-            <button type="button" className="btn-text" onClick={() => setOpen(false)}>
-              Cancel
-            </button>
-            <button type="button" className="btn-primary" onClick={onSave}>
-              Save
-            </button>
-          </div>
-        </div>
-      )}
+      <input
+        ref={inputRef}
+        type="date"
+        className="due-hidden-input"
+        value={due ? toInputValue(due) : ''}
+        onChange={(e) => {
+          const d = fromInputValue(e.target.value);
+          onSet(d);
+        }}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
     </div>
   );
 }
