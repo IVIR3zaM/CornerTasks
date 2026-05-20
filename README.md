@@ -64,7 +64,7 @@ Full version history is in [`CHANGELOG.md`](CHANGELOG.md). The v0.2.0 work plan 
 CornerTasks does not ship with a hosted backend. To use cloud sync you deploy `backend/aws/` to your own AWS account, then point the app at the URL it prints.
 
 ```bash
-# Prerequisites: AWS CLI configured (`aws configure` or env vars), Node 20+, SAM CLI.
+# Prerequisites: AWS CLI configured (`aws configure` or env vars), Node 22+, SAM CLI.
 git clone https://github.com/IVIR3zaM/CornerTasks
 cd CornerTasks/backend/aws
 npm install
@@ -97,7 +97,7 @@ In v0.1.0 the macOS app lived at the repo root; v0.2.0 moved it under `apps/maco
 
 - macOS 13+
 - Swift 5.9 / Xcode 15+
-- Node 20+ (for `apps/web` and `backend/aws`, once those land)
+- Node 22+ (for `apps/web` and `backend/aws`, once those land)
 
 ## Install (from a release DMG)
 

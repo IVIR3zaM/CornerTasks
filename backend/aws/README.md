@@ -19,8 +19,8 @@ If you fork and prefer CDK, the resources to recreate are obvious from `template
 | Resource | Purpose |
 | --- | --- |
 | `HttpApi` (API Gateway HTTP API) | Single API with `POST /v1/sync/push`, `GET /v1/sync/pull`, `POST /v1/auth/challenge`, and `POST /v1/auth/token`. CORS open. |
-| `PushFunction`, `PullFunction` (Lambda, Node 20, arm64) | Sync handlers per `docs/sync-protocol.md` §7. Both are protected by `requireBearer` middleware (§8). |
-| `AuthChallengeFunction`, `AuthTokenFunction` (Lambda, Node 20, arm64) | DID-Auth → Bearer JWT flow per `docs/sync-protocol.md` §8. Issues 32-byte single-use challenges (5 min TTL) and 1 h bearer JWTs. |
+| `PushFunction`, `PullFunction` (Lambda, Node 22, arm64) | Sync handlers per `docs/sync-protocol.md` §7. Both are protected by `requireBearer` middleware (§8). |
+| `AuthChallengeFunction`, `AuthTokenFunction` (Lambda, Node 22, arm64) | DID-Auth → Bearer JWT flow per `docs/sync-protocol.md` §8. Issues 32-byte single-use challenges (5 min TTL) and 1 h bearer JWTs. |
 | `EventsTable` (DynamoDB, on-demand, PITR on) | Single-table: `pk = ACCOUNT#<accountDid>`, `sk = TASK#<taskId>`. GSI `ByUpdatedAt` keyed by `(pk, updatedAt)` powers `pull?since=...`. |
 | `AuthChallengesTable` (DynamoDB, on-demand, native TTL) | `pk = AUTHCHAL#<accountDid>`, `sk = <challenge>`. Server-side TTL on `ttl` evicts unused challenges; consumed challenges are deleted atomically. |
 | `JwtSigningReadPolicy` + SSM Parameter Store | Per-deploy bearer-JWT signing key. Default `JwtAlg=EdDSA` stores private key as `SecureString` at `/cornertasks/<stage>/jwt-signing-key` and the public part at `/cornertasks/<stage>/jwt-signing-key-public`. `JwtAlg=HS256` switches to a single shared `SecureString` at `/cornertasks/<stage>/jwt-hs256-secret`. |
@@ -74,7 +74,7 @@ Tighten this in production (scope `Resource` to the stack's resource ARNs, drop 
 ## Step-by-step
 
 1. **Fork or clone this repo.**
-2. **Install prerequisites:** Node 20+, the [AWS CLI](https://docs.aws.amazon.com/cli/), and the [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html). Configure credentials with `aws configure` or env vars.
+2. **Install prerequisites:** Node 22+, the [AWS CLI](https://docs.aws.amazon.com/cli/), and the [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html). Configure credentials with `aws configure` or env vars.
 3. **Deploy the backend:**
    ```bash
    cd backend/aws

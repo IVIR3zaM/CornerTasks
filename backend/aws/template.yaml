@@ -32,7 +32,7 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: nodejs20.x
+    Runtime: nodejs24.x
     Architectures: [arm64]
     MemorySize: 256
     Timeout: 10
@@ -134,7 +134,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         Format: cjs
-        Target: node20
+        Target: node24
         Sourcemap: true
         External: ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/client-ssm"]
         EntryPoints: [src/handlers/push.ts]
@@ -159,7 +159,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         Format: cjs
-        Target: node20
+        Target: node24
         Sourcemap: true
         External: ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/client-ssm"]
         EntryPoints: [src/handlers/pull.ts]
@@ -183,7 +183,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         Format: cjs
-        Target: node20
+        Target: node24
         Sourcemap: true
         External: ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/client-ssm"]
         EntryPoints: [src/handlers/auth/challenge.ts]
@@ -208,7 +208,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         Format: cjs
-        Target: node20
+        Target: node24
         Sourcemap: true
         External: ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/client-ssm"]
         EntryPoints: [src/handlers/auth/token.ts]
