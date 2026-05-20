@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Run CI's checks locally against the *staged* content before allowing a
+# commit. Mirrors path filters from .github/workflows/ci-*.yml so a commit
+# touching only one app doesn't pay for tests in the others.
+#
+# Enable once per clone:   git config core.hooksPath .githooks
+# Bypass a single commit:  git commit --no-verify   (CI will still run)
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+# ---- which scopes are touched? ------------------------------------------
+# Compare staged tree against HEAD. On the initial commit, --cached lists
+# every staged file against the empty tree, which is what we want.
+changed="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+if [ -z "$changed" ]; then
+  echo "pre-commit: nothing staged, skipping."
+  exit 0
+fi
+
+scopes=()
+need_all=0
+while IFS= read -r f; do
+  case "$f" in
+    backend/aws/*)              scopes+=("backend") ;;
+    apps/web/*)                 scopes+=("web") ;;
+    apps/macos/*)               scopes+=("macos") ;;
+    .github/workflows/*\
+      |scripts/*\
+      |.githooks/*\
+      |AGENTS.md|CLAUDE.md)     need_all=1 ;;
+  esac
+done <<< "$changed"
+
+if [ "$need_all" = "1" ] || [ "${#scopes[@]}" -eq 0 ]; then
+  SCOPES="backend,web,macos"
+else
+  # de-dup
+  SCOPES="$(printf '%s\n' "${scopes[@]}" | sort -u | paste -sd, -)"
+fi
+export SCOPES
+echo "pre-commit: running checks for scopes: $SCOPES"
+
+# ---- test against the staged content, not the dirty working tree --------
+# `git stash` with --keep-index leaves only the staged content in the tree,
+# stashing everything else. We restore on exit no matter what.
+stash_ref=""
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  # Only stash if there are unstaged changes; if the index matches the tree
+  # we have nothing to hide and can skip the dance.
+  if ! git diff --quiet; then
+    git stash push --keep-index --include-untracked -m "pre-commit-$$" >/dev/null
+    stash_ref="stash@{0}"
+  fi
+fi
+restore() {
+  rc=$?
+  if [ -n "$stash_ref" ]; then
+    git stash pop --quiet || git stash pop "$stash_ref" --quiet || true
+  fi
+  exit "$rc"
+}
+trap restore EXIT
+
+"$ROOT/scripts/test-all.sh"

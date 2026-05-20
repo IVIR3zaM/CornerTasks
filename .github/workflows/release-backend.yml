@@ -12,7 +12,12 @@
 #   1. Capture ApiUrl + WebUrl from the CloudFormation stack outputs.
 #   2. Call `smoke-test.yml` via workflow_call against the freshly-deployed
 #      ApiUrl (the only time smoke runs without `vars.CT_API_URL` being set).
-#   3. Append the deployed endpoints to the matching GitHub release.
+#   3. Store the endpoints in repo Actions variables (BACKEND_API_URL,
+#      BACKEND_WEB_URL). These are visible only to maintainers via
+#      Settings → Secrets and variables → Actions. We deliberately do NOT
+#      publish the URLs to the GitHub release body, job summary, or logs —
+#      per the BYO-AWS model the maintainer's endpoint is private and end
+#      users deploy their own stack.
 name: Release backend (BYO-AWS)
 
 on:
@@ -51,6 +56,7 @@ on:
 permissions:
   id-token: write
   contents: write
+  actions: write  # needed by `gh variable set` to record deployed endpoints
 
 jobs:
   deploy:
@@ -140,10 +146,30 @@ jobs:
             echo "::error::Stack $stack has no ApiUrl output."
             exit 1
           fi
+          # Mask the URLs so they're redacted from any subsequent log line,
+          # job summary, or downstream job that prints them. Job outputs
+          # still propagate to the smoke job over the encrypted channel.
+          echo "::add-mask::$api_url"
+          echo "::add-mask::$web_url"
           echo "api_url=$api_url" >> "$GITHUB_OUTPUT"
           echo "web_url=$web_url" >> "$GITHUB_OUTPUT"
-          echo "ApiUrl: $api_url"
-          echo "WebUrl: $web_url"
+          echo "Captured ApiUrl and WebUrl (redacted from logs)."
+
+      - name: Record endpoints in maintainer-only repo variables
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ steps.outputs.outputs.api_url }}
+          WEB_URL: ${{ steps.outputs.outputs.web_url }}
+          STAGE_UPPER: ${{ env.STAGE }}
+        run: |
+          set -euo pipefail
+          stage_upper="$(echo "$STAGE_UPPER" | tr '[:lower:]' '[:upper:]')"
+          # Repo Actions variables are only readable by users with write
+          # access (collaborators / maintainers). Random GitHub users cannot
+          # see them. The maintainer reads them at:
+          #   Settings → Secrets and variables → Actions → Variables.
+          gh variable set "BACKEND_API_URL_${stage_upper}" --body "$API_URL"
+          gh variable set "BACKEND_WEB_URL_${stage_upper}" --body "$WEB_URL"
 
   smoke:
     needs: deploy
@@ -159,7 +185,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Append deployed endpoints to release
+      # The deployed ApiUrl / WebUrl are intentionally NOT included in the
+      # public release body. They are stored as repo Actions variables
+      # (BACKEND_API_URL_<STAGE> / BACKEND_WEB_URL_<STAGE>) which only
+      # maintainers can read. Per the BYO-AWS model in AGENTS.md, end users
+      # deploy their own stack and obtain their own URLs.
+      - name: Append backend release note (URLs withheld)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.deploy.outputs.release_tag }}
@@ -169,7 +200,8 @@ jobs:
           body: |
             **Backend (AWS) v${{ needs.deploy.outputs.version }}**
 
-            - ApiUrl: `${{ needs.deploy.outputs.api_url }}`
-            - WebUrl: `${{ needs.deploy.outputs.web_url }}`
+            Smoke-tested with `sync-doctor.ts` against the deployed ApiUrl.
 
-            Smoke-tested with `sync-doctor.ts` against the ApiUrl above.
+            The maintainer's deployed endpoints are not published here.
+            CornerTasks is BYO-AWS: deploy `backend/aws/` to your own AWS
+            account and use the ApiUrl your stack outputs.

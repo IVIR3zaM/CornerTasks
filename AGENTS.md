@@ -142,6 +142,22 @@ In v0.1.0 the macOS app lives at the repo root. Iteration 1 in [`ITERATIONS.md`]
 
 `build.sh` uses `set -euo pipefail` and an EXIT trap to clean intermediates. Don't reintroduce silent failures.
 
+## Running all tests
+
+- `scripts/test-all.sh` mirrors CI exactly. Per package it runs the same step order as `.github/workflows/ci-*.yml`:
+  - `backend/aws` — `npm run lint` (eslint) → `npm test` (jest) → `npm run build` (tsc).
+  - `apps/web` — `npm run lint` (tsc) → `npm test` (vitest) → `npm run build` (tsc + vite build).
+  - `apps/macos` — `swift build -c debug` → `swift test`.
+  - If `actionlint` is on PATH it lints `.github/workflows/*.yml` (catches workflow typos that would otherwise only surface on push).
+  - If `shellcheck` is on PATH it lints `scripts/`, `.githooks/`, and `apps/macos/*.sh`.
+- Flags: `SCOPES=backend,web,macos` (subset), `SKIP_MACOS=1`, `SKIP_BUILD=1`. On non-Darwin hosts the macOS suite skips automatically.
+- The pre-commit hook at `.githooks/pre-commit` enables this. Setup once per clone with `git config core.hooksPath .githooks`. It:
+  - Narrows `SCOPES` to the directories touched by the staged diff (matches CI's path filters; a backend-only change won't run web/macos tests).
+  - Stashes unstaged changes with `--keep-index` so the test reflects exactly what's about to be committed, then restores on exit.
+  - Treats any change under `.github/workflows/`, `scripts/`, `.githooks/`, or top-level guidance files as "run everything."
+  - Bypass an individual commit with `git commit --no-verify` (CI will still run).
+- Optional but recommended local installs: `brew install actionlint shellcheck`. The script skips them silently if absent.
+
 ## Working with ITERATIONS.md
 
 - Each iteration is independently mergeable. Don't merge two iterations in one PR.
@@ -150,6 +166,7 @@ In v0.1.0 the macOS app lives at the repo root. Iteration 1 in [`ITERATIONS.md`]
 
 ## When making changes
 
+- Never create a new git branch. Always work directly on the current branch.
 - Update `README.md` if user-visible behavior changes.
 - Update this file if architectural conventions change.
 - Bump the version per "Versioning" above for any user-facing release.

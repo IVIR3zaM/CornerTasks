@@ -9,7 +9,7 @@ Package.resolved
 
 # vscode & cluade code
 .vscode/
-.cluade/
+.claude/
 
 # Build artifacts (apps/macos/build.sh runs from apps/macos/)
 apps/macos/CornerTasks.app/
