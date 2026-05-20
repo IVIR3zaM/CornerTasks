@@ -1,0 +1,31 @@
+name: CI (apps/macos)
+
+on:
+  pull_request:
+    paths:
+      - 'apps/macos/**'
+      - '.github/workflows/ci-macos.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/macos/**'
+      - '.github/workflows/ci-macos.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-14
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/macos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+      - name: swift build
+        run: swift build -c debug
+      - name: swift test
+        run: swift test

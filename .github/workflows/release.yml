@@ -1,13 +1,39 @@
-name: Release
+# Release the macOS app: build a universal DMG and attach it to a GitHub
+# release.
+#
+# Triggers:
+#   - push of a `macos-v*` tag   → standalone hotfix release of this component.
+#   - workflow_call              → invoked by `release-all.yml` for a `v*` umbrella.
+#   - workflow_dispatch          → manual override.
+#
+# (Note: bare `v*` tags are handled by `release-all.yml`, which calls this
+# workflow via workflow_call. Don't add `v*` to the tag list here or you'll
+# double-trigger.)
+#
+# Gate: skipped entirely if the repo variable RELEASE_MACOS_ENABLED is
+# explicitly set to 'false'. Unset / 'true' / anything else = enabled.
+#
+# This workflow uses no AWS credentials.
+name: Release macOS
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'macos-v*'
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.3.0). Skip leading v.'
+        required: true
+        type: string
+      release_tag:
+        description: 'GitHub release tag to attach to (e.g. v0.3.0 or macos-v0.2.1).'
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g. 0.1.0). Skip leading v.'
+        description: 'Version (e.g. 0.3.0). Skip leading v.'
         required: true
 
 permissions:
@@ -15,6 +41,7 @@ permissions:
 
 jobs:
   build:
+    if: vars.RELEASE_MACOS_ENABLED != 'false'
     runs-on: macos-14
     timeout-minutes: 25
 
@@ -24,16 +51,27 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
-      - name: Resolve version
+      - name: Resolve version + release tag
         id: ver
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="${{ inputs.version }}"
-          else
-            VERSION="${GITHUB_REF_NAME#v}"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building version $VERSION"
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            workflow_call)
+              v="${{ inputs.version }}"
+              tag="${{ inputs.release_tag }}"
+              ;;
+            workflow_dispatch)
+              v="${{ inputs.version }}"
+              tag="macos-v$v"
+              ;;
+            *) # push of macos-v* tag
+              tag="${GITHUB_REF_NAME}"
+              v="${tag#macos-v}"
+              ;;
+          esac
+          echo "version=$v"        >> "$GITHUB_OUTPUT"
+          echo "release_tag=$tag"  >> "$GITHUB_OUTPUT"
+          echo "Building macOS $v → GitHub release $tag"
 
       - name: Build universal DMG
         working-directory: apps/macos
@@ -49,14 +87,17 @@ jobs:
           name: CornerTasks-${{ steps.ver.outputs.version }}-universal
           path: apps/macos/release/CornerTasks-${{ steps.ver.outputs.version }}-universal.dmg
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Attach DMG to GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: CornerTasks ${{ github.ref_name }}
-          generate_release_notes: true
+          tag_name: ${{ steps.ver.outputs.release_tag }}
+          name: CornerTasks ${{ steps.ver.outputs.release_tag }}
           files: apps/macos/release/CornerTasks-${{ steps.ver.outputs.version }}-universal.dmg
+          append_body: true
+          generate_release_notes: false
           body: |
+            **macOS v${{ steps.ver.outputs.version }}**
+
             Universal macOS build (Apple Silicon + Intel), macOS 13+.
 
             The DMG is ad-hoc signed (not notarized). On first launch macOS

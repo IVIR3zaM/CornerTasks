@@ -120,14 +120,14 @@ The mnemonic should not control real data — every event the doctor pushes is v
 
 In CI, [`.github/workflows/smoke-test.yml`](../../.github/workflows/smoke-test.yml) runs `sync-doctor` automatically:
 
-- after every successful run of `Deploy backend (BYO-AWS)` (post-deploy verification);
+- invoked via `workflow_call` from `release-backend.yml` immediately after a successful deploy, against the freshly-captured `ApiUrl` (post-deploy verification);
 - on every PR touching `apps/`, `backend/`, or `docs/sync-protocol.md` (regression guard before merge);
 - on `workflow_dispatch` (manual).
 
 To enable it on your fork, add:
 
-- **Variable** `CT_API_URL` — the `ApiUrl` of a long-lived dev stack you don't mind exercising.
 - **Secret** `CT_MNEMONIC` — a throwaway 12-word BIP-39 mnemonic. Anyone who reads workflow logs of a failed run could see DIDs derived from it; do not reuse it for anything you care about.
+- **Variable** `CT_API_URL` (optional) — the `ApiUrl` of a long-lived dev stack you don't mind exercising. Used only by PR runs and ad-hoc `workflow_dispatch`; the release-driven smoke pass uses the freshly-deployed `ApiUrl` instead.
 
 The smoke test does not need AWS credentials — it only makes HTTPS calls to the API URL.
 
@@ -137,13 +137,24 @@ The smoke test does not need AWS credentials — it only makes HTTPS calls to th
 - This repo's `main` branch GitHub Actions does **not** carry the maintainer's AWS credentials. Any personal dev stack the maintainer runs is deployed manually from a laptop — never from this repo's CI.
 - The released DMG contains no embedded `ApiUrl`. The standalone-by-default contract is verified at release time (iteration 14) and as part of E2E (iteration 13).
 
-### Optional CI deploys for your fork
+### CI deploys for your fork (tag-driven, OIDC, no long-lived keys)
 
-If you want your fork to deploy this stack from CI rather than your laptop, see [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml). It is **committed but disabled by default** (`workflow_dispatch` only) and uses **GitHub OIDC → AWS IAM role** — no long-lived keys. To enable in your fork:
+Releases are tag-driven and fully automated — see the top-level [README](../../README.md#ci-and-releases-via-github-actions) for the full table of tag → workflow mappings, the per-component enable flags, and the comprehensive *Setting `AWS_ROLE_TO_ASSUME`* walkthrough.
 
-1. Create an IAM role in your AWS account with the deploy permissions above and a trust policy for `token.actions.githubusercontent.com` scoped to your fork's repository.
-2. In your fork's repo settings, add:
-   - **Secret** `AWS_ROLE_TO_ASSUME` — full ARN of that role.
-   - **Variable** `AWS_REGION`.
-   - **Variable** `STAGE` (optional; defaults to `prod`).
-3. Trigger the workflow from the Actions tab (`workflow_dispatch`).
+Quick summary of the AWS-touching workflows that consume the permissions on this page:
+
+| Workflow | Trigger | Uses these creds |
+| --- | --- | --- |
+| [`release-backend.yml`](../../.github/workflows/release-backend.yml) | `backend-v*` tag push, or called by `release-all.yml` on a `v*` tag | OIDC → `AWS_ROLE_TO_ASSUME`; deploys SAM; runs post-deploy `sync-doctor.ts` smoke. |
+| [`release-web.yml`](../../.github/workflows/release-web.yml)         | `web-v*` tag push, or called by `release-all.yml` on a `v*` tag     | Same role; uploads `apps/web/dist/` to S3 + invalidates CloudFront. |
+| [`release-all.yml`](../../.github/workflows/release-all.yml)         | `v*` tag push (umbrella)                                            | Orchestrates the above. |
+
+The cut-a-release flow:
+
+1. Bump versions (`backend/aws/package.json`, `apps/web/package.json`, `apps/macos/AppBundle/Info.plist`) in a PR and merge it.
+2. Push the tag that maps to what you want released:
+   - `v0.3.0` — all enabled components, coordinated.
+   - `backend-v0.2.1` / `web-v0.2.1` / `macos-v0.2.1` — that one component only.
+3. The workflow runs, deploys, smoke-tests, and publishes the GitHub release. No manual clicks.
+
+To disable AWS-backed releases (e.g. once you ship a Docker backend instead), set the repo variable `RELEASE_BACKEND_AWS_ENABLED=false` — the umbrella will skip the backend job, and `backend-v*` pushes will skip cleanly too.

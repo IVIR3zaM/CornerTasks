@@ -1,6 +1,6 @@
 {
   "name": "@cornertasks/backend-aws",
-  "version": "0.2.0-dev",
+  "version": "0.2.0",
   "private": true,
   "description": "CornerTasks BYO-AWS backend (SAM + TypeScript). Deploy this to your own AWS account; the maintainer does not host a shared backend.",
   "scripts": {

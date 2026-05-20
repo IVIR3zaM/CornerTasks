@@ -135,20 +135,98 @@ VERSION=0.2.0 UNIVERSAL=1 ./build.sh # also stamp Info.plist with a version
 
 This generates the `.icns` from `icon.png`, builds the release binary, assembles `CornerTasks.app`, ad-hoc signs it, and writes the DMG to `release/`. `build.sh` runs `lipo -info` at the end so you can confirm both slices are present.
 
-### Releases via GitHub Actions
+### CI and releases via GitHub Actions
 
-A push of a `v*` tag (or a manual `workflow_dispatch`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which:
+The three components — `apps/macos`, `apps/web`, `backend/aws` — version and release **independently**, so you can hotfix any one of them without touching the others. New components (e.g. an iOS app, a Docker backend variant) plug into the same shape: one CI workflow, one release workflow with a tag trigger + `workflow_call` interface, one enable flag.
 
-1. Builds a **universal** (arm64 + x86_64) DMG on a `macos-14` runner with full Xcode.
-2. Uploads it as a workflow artifact.
-3. On tag push, attaches it to a GitHub Release with auto-generated notes.
+#### CI on pull requests (path-filtered)
 
-Cut a release:
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| [`ci-macos.yml`](.github/workflows/ci-macos.yml)     | PR / push to main touching `apps/macos/**`   | `swift build` + `swift test` on `macos-14` |
+| [`ci-web.yml`](.github/workflows/ci-web.yml)         | PR / push to main touching `apps/web/**`     | `npm ci && lint && test && build` |
+| [`ci-backend.yml`](.github/workflows/ci-backend.yml) | PR / push to main touching `backend/aws/**`  | `npm ci && lint && test && build` |
+| [`smoke-test.yml`](.github/workflows/smoke-test.yml) | PR touching the sync wire format             | Runs `sync-doctor.ts` against `vars.CT_API_URL`; **skips cleanly** if that variable is not set |
+
+#### Release: how tags map to deploys
+
+Releases are **fully automated and tag-driven** — there is no manual workflow_dispatch step in the happy path. You push a tag, the matching workflow runs, deploys, smoke-tests, and publishes the GitHub release.
+
+| Tag you push | Workflow that runs | What it ships |
+| --- | --- | --- |
+| `v0.3.0` (no prefix) | [`release-all.yml`](.github/workflows/release-all.yml) — **umbrella** | Coordinated release of every *enabled* component at the same version. Use this for normal major/minor bumps. |
+| `backend-v0.2.1`     | [`release-backend.yml`](.github/workflows/release-backend.yml) | Hotfix backend only. Calls `smoke-test.yml` against the freshly-deployed `ApiUrl`. |
+| `web-v0.2.1`         | [`release-web.yml`](.github/workflows/release-web.yml)         | Hotfix web only. Smoke = HTTP GET against `WebUrl`. |
+| `macos-v0.2.1`       | [`release.yml`](.github/workflows/release.yml)                 | Hotfix macOS DMG only. No AWS credentials touched. |
+
+The umbrella workflow runs each enabled component in the order: **backend → web → macOS** (so the backend's `ApiUrl` is fresh before anything that wants to smoke against it). Backend always smoke-tests itself with `sync-doctor.ts`; if backend fails, web and macOS still skip (they only run when backend succeeds *or* is disabled).
+
+Cutting a release:
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+# Major/minor — bump versions in all three components, then:
+git tag v0.3.0
+git push origin v0.3.0
+
+# Hotfix a single component — bump only that component's version, then:
+git tag macos-v0.2.1   # or backend-v0.2.1 / web-v0.2.1
+git push origin macos-v0.2.1
 ```
+
+Versions live in `apps/macos/AppBundle/Info.plist` (`CFBundleShortVersionString` + `CFBundleVersion`), `apps/web/package.json`, and `backend/aws/package.json`. Bump them in a PR; tag after the PR merges to `main`.
+
+#### Selectively disabling a component (or swapping it later)
+
+Each release workflow has a per-component enable flag (a repo *variable* under Settings → Variables and secrets → Actions → Variables). Default behaviour is **enabled** — the flag only matters when you want to skip a component.
+
+| Variable | Default | Effect when set to `false` |
+| --- | --- | --- |
+| `RELEASE_BACKEND_AWS_ENABLED` | enabled | The umbrella skips the backend job; `backend-v*` tag pushes still run unless you want to ignore those too (set the same variable). |
+| `RELEASE_WEB_ENABLED`         | enabled | Same, for web. |
+| `RELEASE_MACOS_ENABLED`       | enabled | Same, for macOS. |
+
+If you later add a Docker backend release and want to drop AWS, set `RELEASE_BACKEND_AWS_ENABLED=false`, add a new workflow (`release-backend-docker.yml`) following the same shape, add a `backend-docker` job to `release-all.yml` gated on `RELEASE_BACKEND_DOCKER_ENABLED`, and you're done.
+
+#### Forks: required GitHub repo configuration
+
+The macOS release path needs nothing from AWS — it's pure Xcode on a hosted runner. The web and backend release paths use **GitHub OIDC → AWS IAM role** (no long-lived AWS keys). Smoke uses a throwaway BIP-39 mnemonic.
+
+| Name | Kind | Required? | Used by | Notes |
+| --- | --- | --- | --- | --- |
+| `AWS_ROLE_TO_ASSUME` | secret   | yes (for backend/web releases) | `release-backend.yml`, `release-web.yml` | Full ARN of an IAM role with a GitHub-OIDC trust policy scoped to your fork. See *Setting `AWS_ROLE_TO_ASSUME`* below. |
+| `AWS_REGION`         | variable | yes (for backend/web releases) | `release-backend.yml`, `release-web.yml` | The region your stack lives in, e.g. `us-east-1`. |
+| `STAGE`              | variable | no  | `release-backend.yml`, `release-web.yml` | Deploy stage name; defaults to `prod`. Override per-run via the workflow input. |
+| `CT_MNEMONIC`        | secret   | no  | `smoke-test.yml` (via release-backend) | Throwaway 12-word BIP-39 mnemonic used by `sync-doctor.ts`. **Defaults** to the standard BIP-39 *abandon × 11 + about* vector if unset, so a fresh fork's first deploy already smoke-tests. Override it once you have a long-lived test account. |
+| `CT_API_URL`         | variable | no  | `smoke-test.yml` (PR-time only)        | `ApiUrl` of a long-lived dev stack to smoke-test on PRs. If unset, PR smoke skips cleanly. The release-driven smoke pass uses the freshly-deployed `ApiUrl` instead — never this variable. |
+| `RELEASE_BACKEND_AWS_ENABLED` | variable | no  | `release-backend.yml`, `release-all.yml` | Set to `false` to disable. |
+| `RELEASE_WEB_ENABLED`         | variable | no  | `release-web.yml`,     `release-all.yml` | Set to `false` to disable. |
+| `RELEASE_MACOS_ENABLED`       | variable | no  | `release.yml`,         `release-all.yml` | Set to `false` to disable. |
+
+##### Setting `AWS_ROLE_TO_ASSUME`
+
+You need an IAM role in **your** AWS account that GitHub's OIDC token can assume — no AWS access keys leave AWS.
+
+1. **Add GitHub Actions as an OIDC identity provider** (one-time per AWS account):
+   - AWS Console → IAM → **Identity providers** → **Add provider**.
+   - Provider type: *OpenID Connect*.
+   - Provider URL: `https://token.actions.githubusercontent.com`. Click *Get thumbprint*.
+   - Audience: `sts.amazonaws.com`.
+   - Save.
+2. **Create the role**:
+   - IAM → Roles → **Create role**.
+   - Trusted entity type: *Web identity*.
+   - Identity provider: the `token.actions.githubusercontent.com` you just added.
+   - Audience: `sts.amazonaws.com`.
+   - GitHub organization: your username / org (e.g. `YOURNAME`).
+   - GitHub repository: your fork's name (e.g. `CornerTasks`).
+   - (Optional but recommended) restrict the trust policy to tags only — edit the role's trust JSON and set the subject claim to `repo:YOURNAME/CornerTasks:ref:refs/tags/*`. That way only tag-push workflows can assume the role.
+3. **Attach permissions**: the policy needed to deploy SAM + upload to S3 + invalidate CloudFront is documented in [`backend/aws/README.md`](backend/aws/README.md) under *IAM permissions for deploy*. Attach that as an inline or managed policy.
+4. **Copy the role ARN** (looks like `arn:aws:iam::123456789012:role/cornertasks-github-deploy`).
+5. **Paste it into your fork**: Settings → Secrets and variables → Actions → **Secrets** → New repository secret → name `AWS_ROLE_TO_ASSUME`, value the ARN.
+
+After that, set `AWS_REGION` under **Variables** (same screen, *Variables* tab) and you're ready — the next `v*` or `*-v*` tag push runs end-to-end without any further configuration.
+
+No part of this repo's CI carries the maintainer's credentials; every fork wires up its own role.
 
 ### Architectures: do you need separate Intel / Apple Silicon builds?
 

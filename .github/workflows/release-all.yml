@@ -1,0 +1,104 @@
+# Umbrella release: fires on a `v*` tag (e.g. `v0.3.0`) and orchestrates a
+# coordinated release of every enabled component at the same version,
+# attaching their artifacts and deploy URLs to a single GitHub release.
+#
+# Each component is gated by a repo *variable* (Settings → Variables) so
+# you can selectively disable any one without touching this file:
+#
+#   RELEASE_BACKEND_AWS_ENABLED   default true   ('false' to skip)
+#   RELEASE_WEB_ENABLED           default true   ('false' to skip)
+#   RELEASE_MACOS_ENABLED         default true   ('false' to skip)
+#
+# To add a new component later (e.g. Docker backend, iOS app, …):
+#   1. Write a `release-<thing>.yml` exposing both a `<thing>-v*` tag
+#      trigger and a `workflow_call` interface (mirror release-backend.yml).
+#   2. Add a job below: `needs: [resolve, create-release]`, gated by a new
+#      `RELEASE_<THING>_ENABLED` variable.
+#
+# Component-scoped hotfix tags (`backend-v*`, `web-v*`, `macos-v*`) bypass
+# this orchestrator and trigger their workflow directly — see those files.
+name: Release (umbrella)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.3.0). Skip leading v.'
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.out.outputs.version }}
+      release_tag: ${{ steps.out.outputs.release_tag }}
+    steps:
+      - id: out
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            v="${{ inputs.version }}"
+            tag="v$v"
+          else
+            tag="${GITHUB_REF_NAME}"
+            v="${tag#v}"
+          fi
+          echo "version=$v"        >> "$GITHUB_OUTPUT"
+          echo "release_tag=$tag"  >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag (version $v)"
+
+  create-release:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create / refresh GitHub release shell
+        # Each component release job will append its artifacts and notes to
+        # this same release via softprops/action-gh-release.
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve.outputs.release_tag }}
+          name: CornerTasks ${{ needs.resolve.outputs.release_tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+  backend:
+    needs: [resolve, create-release]
+    if: vars.RELEASE_BACKEND_AWS_ENABLED != 'false'
+    uses: ./.github/workflows/release-backend.yml
+    with:
+      version:     ${{ needs.resolve.outputs.version }}
+      release_tag: ${{ needs.resolve.outputs.release_tag }}
+    secrets: inherit
+
+  web:
+    # Runs after backend so a fresh ApiUrl is available for any consumers
+    # that want to chain off it. `always()` lets web ship even if backend
+    # was skipped (disabled) — but not if backend ran and failed.
+    needs: [resolve, create-release, backend]
+    if: |
+      always() &&
+      vars.RELEASE_WEB_ENABLED != 'false' &&
+      (needs.backend.result == 'success' || needs.backend.result == 'skipped')
+    uses: ./.github/workflows/release-web.yml
+    with:
+      version:     ${{ needs.resolve.outputs.version }}
+      release_tag: ${{ needs.resolve.outputs.release_tag }}
+    secrets: inherit
+
+  macos:
+    needs: [resolve, create-release]
+    if: vars.RELEASE_MACOS_ENABLED != 'false'
+    uses: ./.github/workflows/release.yml
+    with:
+      version:     ${{ needs.resolve.outputs.version }}
+      release_tag: ${{ needs.resolve.outputs.release_tag }}
+    secrets: inherit

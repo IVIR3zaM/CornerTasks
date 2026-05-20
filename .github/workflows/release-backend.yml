@@ -1,0 +1,175 @@
+# Release the AWS serverless backend.
+#
+# Triggers:
+#   - push of a `backend-v*` tag   → standalone hotfix release of this component.
+#   - workflow_call                → invoked by `release-all.yml` for a `v*` umbrella.
+#   - workflow_dispatch            → manual override (rare).
+#
+# Gate: skipped entirely if the repo variable RELEASE_BACKEND_AWS_ENABLED is
+# explicitly set to 'false'. Unset / 'true' / anything else = enabled.
+#
+# After a successful SAM deploy we:
+#   1. Capture ApiUrl + WebUrl from the CloudFormation stack outputs.
+#   2. Call `smoke-test.yml` via workflow_call against the freshly-deployed
+#      ApiUrl (the only time smoke runs without `vars.CT_API_URL` being set).
+#   3. Append the deployed endpoints to the matching GitHub release.
+name: Release backend (BYO-AWS)
+
+on:
+  push:
+    tags:
+      - 'backend-v*'
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.3.0). Skip leading v.'
+        required: true
+        type: string
+      release_tag:
+        description: 'GitHub release tag to attach to (e.g. v0.3.0 or backend-v0.2.1).'
+        required: true
+        type: string
+      stage:
+        description: 'Deploy stage. Defaults to repo variable STAGE or "prod".'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      api_url:
+        description: 'ApiUrl of the deployed stack'
+        value: ${{ jobs.deploy.outputs.api_url }}
+      web_url:
+        description: 'WebUrl of the deployed stack'
+        value: ${{ jobs.deploy.outputs.web_url }}
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Stage name (e.g. prod, dev). Defaults to repo variable STAGE or "prod".'
+        required: false
+        default: ''
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  deploy:
+    if: vars.RELEASE_BACKEND_AWS_ENABLED != 'false'
+    runs-on: ubuntu-latest
+    env:
+      STAGE: ${{ inputs.stage != '' && inputs.stage || (vars.STAGE != '' && vars.STAGE || 'prod') }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+    outputs:
+      api_url:     ${{ steps.outputs.outputs.api_url }}
+      web_url:     ${{ steps.outputs.outputs.web_url }}
+      version:     ${{ steps.resolve.outputs.version }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+    steps:
+      - name: Guard — required inputs
+        run: |
+          if [ -z "${{ secrets.AWS_ROLE_TO_ASSUME }}" ]; then
+            echo "::error::Missing repo secret AWS_ROLE_TO_ASSUME (full ARN of the IAM role to assume via OIDC). See README → 'Setting AWS_ROLE_TO_ASSUME'."
+            exit 1
+          fi
+          if [ -z "${AWS_REGION}" ]; then
+            echo "::error::Missing repo variable AWS_REGION."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Resolve version + release tag
+        id: resolve
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            workflow_call)
+              v="${{ inputs.version }}"
+              tag="${{ inputs.release_tag }}"
+              ;;
+            workflow_dispatch)
+              v="$(node -p "require('./backend/aws/package.json').version")"
+              tag="backend-v$v"
+              ;;
+            *) # push of backend-v* tag
+              tag="${GITHUB_REF_NAME}"
+              v="${tag#backend-v}"
+              ;;
+          esac
+          echo "version=$v"        >> "$GITHUB_OUTPUT"
+          echo "release_tag=$tag"  >> "$GITHUB_OUTPUT"
+          echo "Releasing backend $v → GitHub release $tag"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/aws/package-lock.json
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install backend deps
+        working-directory: backend/aws
+        run: npm ci
+
+      - name: Test
+        working-directory: backend/aws
+        run: npm test
+
+      - name: Deploy
+        working-directory: backend/aws
+        run: npm run deploy:${{ env.STAGE == 'prod' && 'prod' || 'dev' }}
+
+      - name: Capture stack outputs
+        id: outputs
+        run: |
+          set -euo pipefail
+          stack="cornertasks-${STAGE}"
+          raw="$(aws cloudformation describe-stacks --stack-name "$stack" --region "$AWS_REGION" --output json)"
+          api_url="$(echo "$raw" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const o=JSON.parse(s).Stacks?.[0]?.Outputs||[];const m=Object.fromEntries(o.map(x=>[x.OutputKey,x.OutputValue]));process.stdout.write(m.ApiUrl||"")})')"
+          web_url="$(echo "$raw" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const o=JSON.parse(s).Stacks?.[0]?.Outputs||[];const m=Object.fromEntries(o.map(x=>[x.OutputKey,x.OutputValue]));process.stdout.write(m.WebUrl||"")})')"
+          if [ -z "$api_url" ]; then
+            echo "::error::Stack $stack has no ApiUrl output."
+            exit 1
+          fi
+          echo "api_url=$api_url" >> "$GITHUB_OUTPUT"
+          echo "web_url=$web_url" >> "$GITHUB_OUTPUT"
+          echo "ApiUrl: $api_url"
+          echo "WebUrl: $web_url"
+
+  smoke:
+    needs: deploy
+    if: needs.deploy.result == 'success'
+    uses: ./.github/workflows/smoke-test.yml
+    with:
+      api_url: ${{ needs.deploy.outputs.api_url }}
+    secrets: inherit
+
+  publish-release:
+    needs: [deploy, smoke]
+    if: needs.smoke.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Append deployed endpoints to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.deploy.outputs.release_tag }}
+          name: CornerTasks ${{ needs.deploy.outputs.release_tag }}
+          append_body: true
+          generate_release_notes: false
+          body: |
+            **Backend (AWS) v${{ needs.deploy.outputs.version }}**
+
+            - ApiUrl: `${{ needs.deploy.outputs.api_url }}`
+            - WebUrl: `${{ needs.deploy.outputs.web_url }}`
+
+            Smoke-tested with `sync-doctor.ts` against the ApiUrl above.

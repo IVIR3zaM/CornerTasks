@@ -1,27 +1,44 @@
 # End-to-end wire-protocol smoke test against a deployed CornerTasks backend.
 #
-# Runs `backend/aws/scripts/sync-doctor.ts` (challenge → DID-JWT → token → push →
-# pull → decrypt) against the URL stored in the repository variable CT_API_URL,
-# using the mnemonic stored in the repository secret CT_MNEMONIC.
+# `backend/aws/scripts/sync-doctor.ts` walks the full sync wire (challenge →
+# DID-JWT → bearer token → push 1 encrypted upsert → pull → decrypt and
+# verify round-trip) against an ApiUrl, exiting non-zero with the offending
+# step on failure.
 #
-# Trigger:
-#   - workflow_dispatch              — run on demand from the Actions UI.
-#   - workflow_run on Deploy backend  — automatically verifies a fresh dev/prod
-#                                       deploy before any clients pick it up.
-#   - pull_request paths-filter      — runs on PRs that touch the wire format
-#                                      (apps/, backend/, docs/sync-protocol.md).
+# Triggers:
+#   - workflow_call            — invoked by `release-backend.yml` right after
+#                                a deploy, with the freshly-deployed ApiUrl
+#                                passed through as `api_url`. This is the
+#                                primary use; no repo configuration needed.
+#   - pull_request paths-filter — runs on PRs that touch the wire format.
+#                                 Skips cleanly if `vars.CT_API_URL` is unset.
+#   - workflow_dispatch         — run on demand from the Actions UI.
 #
-# This workflow does NOT carry AWS credentials. It only needs an HTTPS reach to
-# the deployed ApiUrl and the test mnemonic. Forks: set repository variable
-# CT_API_URL (your dev stack ApiUrl) and repository secret CT_MNEMONIC (a
-# throwaway 12-word mnemonic — anyone with it can read the test account).
+# ApiUrl resolution (first non-empty wins):
+#   1. `api_url` input  (workflow_call / dispatch)
+#   2. Repository variable CT_API_URL (long-lived dev stack)
+#   If neither is set, the workflow skips cleanly (a notice, not a failure).
+#
+# CT_MNEMONIC: a throwaway 12-word BIP-39 mnemonic. If the repo secret
+# CT_MNEMONIC is unset, this workflow falls back to the standard BIP-39
+# *abandon × 11 + about* vector so the smoke can run on a fresh fork
+# without any configuration. Override it once you have a real test
+# account you want exercised.
 name: Smoke test (sync-doctor)
 
 on:
-  workflow_dispatch: {}
-  workflow_run:
-    workflows: ["Deploy backend (BYO-AWS)"]
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'ApiUrl to smoke-test. Leave blank to use repo variable CT_API_URL.'
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      api_url:
+        description: 'ApiUrl to smoke-test (overrides repo variable CT_API_URL).'
+        required: true
+        type: string
   pull_request:
     paths:
       - 'apps/**'
@@ -33,27 +50,40 @@ permissions:
   contents: read
 
 jobs:
-  smoke:
-    # Don't run the post-deploy hook if the deploy failed, and skip
-    # smoke-testing PRs from forks (they cannot read repo secrets).
-    if: >
-      github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+  resolve:
     runs-on: ubuntu-latest
-    env:
-      CT_API_URL: ${{ vars.CT_API_URL }}
-      CT_MNEMONIC: ${{ secrets.CT_MNEMONIC }}
+    outputs:
+      api_url: ${{ steps.r.outputs.api_url }}
+      run:     ${{ steps.r.outputs.run }}
     steps:
-      - name: Guard — required inputs
+      - id: r
         run: |
-          if [ -z "$CT_API_URL" ]; then
-            echo "::error::Missing repo variable CT_API_URL (the deployed ApiUrl to smoke-test)."
-            exit 1
+          set -euo pipefail
+          api_url="${{ inputs.api_url }}"
+          if [ -z "$api_url" ]; then
+            api_url="${{ vars.CT_API_URL }}"
           fi
-          if [ -z "$CT_MNEMONIC" ]; then
-            echo "::error::Missing repo secret CT_MNEMONIC (a throwaway 12-word BIP-39 mnemonic)."
-            exit 1
+          if [ -z "$api_url" ]; then
+            echo "::notice::No ApiUrl available (no workflow input and no repo variable CT_API_URL). Skipping smoke."
+            echo "run=false"   >> "$GITHUB_OUTPUT"
+            echo "api_url="    >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true"          >> "$GITHUB_OUTPUT"
+            echo "api_url=$api_url"  >> "$GITHUB_OUTPUT"
           fi
 
+  smoke:
+    needs: resolve
+    if: needs.resolve.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CT_API_URL: ${{ needs.resolve.outputs.api_url }}
+      # Default to the standard BIP-39 dev vector when the repo secret is
+      # not set, so a fresh fork's first deploy can smoke-test without any
+      # secrets configured. Replace by setting `CT_MNEMONIC` in repo secrets
+      # once you have a long-lived test account.
+      CT_MNEMONIC: ${{ secrets.CT_MNEMONIC != '' && secrets.CT_MNEMONIC || 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about' }}
+    steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4

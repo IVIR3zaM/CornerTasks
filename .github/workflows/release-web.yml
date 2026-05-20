@@ -1,0 +1,180 @@
+# Release apps/web to S3 + CloudFront in the BYO-AWS stack.
+#
+# Triggers:
+#   - push of a `web-v*` tag   → standalone hotfix release of this component.
+#   - workflow_call            → invoked by `release-all.yml` for a `v*` umbrella.
+#   - workflow_dispatch        → manual override.
+#
+# Gate: skipped entirely if the repo variable RELEASE_WEB_ENABLED is
+# explicitly set to 'false'. Unset / 'true' / anything else = enabled.
+name: Release web (BYO-AWS)
+
+on:
+  push:
+    tags:
+      - 'web-v*'
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.3.0). Skip leading v.'
+        required: true
+        type: string
+      release_tag:
+        description: 'GitHub release tag to attach to (e.g. v0.3.0 or web-v0.2.1).'
+        required: true
+        type: string
+      stage:
+        description: 'Deploy stage. Defaults to repo variable STAGE or "prod".'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      web_url:
+        description: 'WebUrl of the deployed stack'
+        value: ${{ jobs.deploy.outputs.web_url }}
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Stage name (e.g. prod, dev). Defaults to repo variable STAGE or "prod".'
+        required: false
+        default: ''
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  deploy:
+    if: vars.RELEASE_WEB_ENABLED != 'false'
+    runs-on: ubuntu-latest
+    env:
+      STAGE: ${{ inputs.stage != '' && inputs.stage || (vars.STAGE != '' && vars.STAGE || 'prod') }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+    outputs:
+      web_url:     ${{ steps.outputs.outputs.web_url }}
+      version:     ${{ steps.resolve.outputs.version }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+    steps:
+      - name: Guard — required inputs
+        run: |
+          if [ -z "${{ secrets.AWS_ROLE_TO_ASSUME }}" ]; then
+            echo "::error::Missing repo secret AWS_ROLE_TO_ASSUME (full ARN of the IAM role to assume via OIDC). See README → 'Setting AWS_ROLE_TO_ASSUME'."
+            exit 1
+          fi
+          if [ -z "${AWS_REGION}" ]; then
+            echo "::error::Missing repo variable AWS_REGION."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Resolve version + release tag
+        id: resolve
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            workflow_call)
+              v="${{ inputs.version }}"
+              tag="${{ inputs.release_tag }}"
+              ;;
+            workflow_dispatch)
+              v="$(node -p "require('./apps/web/package.json').version")"
+              tag="web-v$v"
+              ;;
+            *) # push of web-v* tag
+              tag="${GITHUB_REF_NAME}"
+              v="${tag#web-v}"
+              ;;
+          esac
+          echo "version=$v"        >> "$GITHUB_OUTPUT"
+          echo "release_tag=$tag"  >> "$GITHUB_OUTPUT"
+          echo "Releasing web $v → GitHub release $tag"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            backend/aws/package-lock.json
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install web deps
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Test
+        working-directory: apps/web
+        run: npm test
+
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Install backend deps (for deploy-web.mjs)
+        working-directory: backend/aws
+        run: npm ci
+
+      - name: Deploy to S3 + invalidate CloudFront
+        working-directory: backend/aws
+        run: npm run deploy:web
+
+      - name: Capture stack outputs
+        id: outputs
+        run: |
+          set -euo pipefail
+          stack="cornertasks-${STAGE}"
+          raw="$(aws cloudformation describe-stacks --stack-name "$stack" --region "$AWS_REGION" --output json)"
+          web_url="$(echo "$raw" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const o=JSON.parse(s).Stacks?.[0]?.Outputs||[];const m=Object.fromEntries(o.map(x=>[x.OutputKey,x.OutputValue]));process.stdout.write(m.WebUrl||"")})')"
+          if [ -z "$web_url" ]; then
+            echo "::error::Stack $stack has no WebUrl output."
+            exit 1
+          fi
+          echo "web_url=$web_url" >> "$GITHUB_OUTPUT"
+          echo "WebUrl: $web_url"
+
+      - name: Smoke — fetch WebUrl
+        env:
+          WEB_URL: ${{ steps.outputs.outputs.web_url }}
+        run: |
+          set -euo pipefail
+          # CloudFront invalidations take a moment; retry a handful of times.
+          for i in 1 2 3 4 5; do
+            code="$(curl -sS -o /tmp/web.html -w '%{http_code}' --max-time 20 "$WEB_URL" || echo '000')"
+            echo "attempt $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              if grep -qi '<html' /tmp/web.html; then
+                echo "WebUrl returned HTML."
+                exit 0
+              fi
+              echo "::warning::200 but no <html> in body; retrying."
+            fi
+            sleep 10
+          done
+          echo "::error::WebUrl $WEB_URL did not return 200 + HTML."
+          exit 1
+
+  publish-release:
+    needs: deploy
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Append deployed endpoints to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.deploy.outputs.release_tag }}
+          name: CornerTasks ${{ needs.deploy.outputs.release_tag }}
+          append_body: true
+          generate_release_notes: false
+          body: |
+            **Web v${{ needs.deploy.outputs.version }}**
+
+            - WebUrl: `${{ needs.deploy.outputs.web_url }}`
+
+            Smoke-tested with HTTP GET against the WebUrl above.
