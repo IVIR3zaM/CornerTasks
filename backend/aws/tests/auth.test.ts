@@ -125,11 +125,11 @@ describe('POST /v1/auth/token', () => {
     expect(parseJson(r)).toMatchObject({ reason: 'bad_lifetime' });
   });
 
-  test('malformed JWS → 400 invalid_did_jwt', async () => {
+  test('malformed JWS → 400 invalid_did_jwt.decode_failed', async () => {
     const kp = await generateKeyPair(7);
     const r = asStructured(await token(fakeEvent({ method: 'POST', path: '/v1/auth/token', body: { accountDid: kp.did, didJwt: 'not.a.jwt' } })));
     expect(r.statusCode).toBe(400);
-    expect(parseJson(r)).toMatchObject({ reason: 'invalid_did_jwt' });
+    expect(parseJson(r)).toMatchObject({ reason: 'invalid_did_jwt.decode_failed' });
   });
 
   test('401 responses include WWW-Authenticate header', async () => {
