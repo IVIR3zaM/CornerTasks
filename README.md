@@ -198,6 +198,7 @@ The macOS release path needs nothing from AWS — it's pure Xcode on a hosted ru
 | `STAGE`              | variable | no  | `release-backend.yml`, `release-web.yml` | Deploy stage name; defaults to `prod`. Override per-run via the workflow input. |
 | `CT_MNEMONIC`        | secret   | no  | `smoke-test.yml` (via release-backend) | Throwaway 12-word BIP-39 mnemonic used by `sync-doctor.ts`. **Defaults** to the standard BIP-39 *abandon × 11 + about* vector if unset, so a fresh fork's first deploy already smoke-tests. Override it once you have a long-lived test account. |
 | `CT_API_URL`         | variable | no  | `smoke-test.yml` (PR-time only)        | `ApiUrl` of a long-lived dev stack to smoke-test on PRs. If unset, PR smoke skips cleanly. The release-driven smoke pass uses the freshly-deployed `ApiUrl` instead — never this variable. |
+| `REPO_VAR_TOKEN`     | secret   | no  | `release-backend.yml`                  | Fine-grained PAT with **Variables: read & write** on this repo. Lets the backend release write `BACKEND_API_URL_<STAGE>` / `BACKEND_WEB_URL_<STAGE>` repo variables so the maintainer can read the URLs without opening AWS. If unset, that one step is skipped with a notice and the deploy still succeeds. See *Setting `REPO_VAR_TOKEN`* below. |
 | `RELEASE_BACKEND_AWS_ENABLED` | variable | no  | `release-backend.yml`, `release-all.yml` | Set to `false` to disable. |
 | `RELEASE_WEB_ENABLED`         | variable | no  | `release-web.yml`,     `release-all.yml` | Set to `false` to disable. |
 | `RELEASE_MACOS_ENABLED`       | variable | no  | `release.yml`,         `release-all.yml` | Set to `false` to disable. |
@@ -227,6 +228,22 @@ You need an IAM role in **your** AWS account that GitHub's OIDC token can assume
 After that, set `AWS_REGION` under **Variables** (same screen, *Variables* tab) and you're ready — the next `v*` or `*-v*` tag push runs end-to-end without any further configuration.
 
 No part of this repo's CI carries the maintainer's credentials; every fork wires up its own role.
+
+##### Setting `REPO_VAR_TOKEN` (optional — auto-record deployed URLs)
+
+The backend release captures `ApiUrl` + `WebUrl` from the CloudFormation stack and (if `REPO_VAR_TOKEN` is set) stores them as repo Actions variables `BACKEND_API_URL_<STAGE>` / `BACKEND_WEB_URL_<STAGE>` so maintainers can read them at Settings → Variables without opening the AWS console. Repo variables are only visible to users with write access, which matches the BYO-AWS *"the endpoint is private"* model.
+
+The default `GITHUB_TOKEN` cannot reach the Actions Variables API — that endpoint requires the explicit *Variables: read & write* permission, which only a PAT or a GitHub App token can carry. So this is opt-in via a dedicated fine-grained PAT:
+
+1. GitHub → click your avatar → Settings → Developer settings → **Personal access tokens** → *Fine-grained tokens* → **Generate new token**.
+2. **Token name**: anything (e.g. `cornertasks-repo-var-write`). **Expiration**: pick a rotation cadence you'll actually do (90 days is reasonable).
+3. **Resource owner**: you / your org.
+4. **Repository access**: *Only select repositories* → pick your fork (and *only* your fork).
+5. **Repository permissions** → scroll to **Variables** → set to **Read and write**. Leave everything else *No access*.
+6. **Generate token** → copy the `github_pat_…` value (shown once).
+7. In your fork: Settings → Secrets and variables → Actions → **Secrets** tab → **New repository secret** → name `REPO_VAR_TOKEN`, value the PAT.
+
+If you skip this, the release still succeeds — the workflow just logs a notice and the URLs are available via CloudFormation outputs (`backend/aws/scripts/print-outputs.mjs`).
 
 ### Architectures: do you need separate Intel / Apple Silicon builds?
 

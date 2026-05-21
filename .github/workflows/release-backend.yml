@@ -56,7 +56,9 @@ on:
 permissions:
   id-token: write
   contents: write
-  actions: write  # needed by `gh variable set` to record deployed endpoints
+  # Note: `gh variable set` below uses `secrets.REPO_VAR_TOKEN` (a PAT), not
+  # GITHUB_TOKEN — the Variables API isn't reachable via the workflow token.
+  # No `actions: write` needed here.
 
 jobs:
   deploy:
@@ -156,8 +158,15 @@ jobs:
           echo "Captured ApiUrl and WebUrl (redacted from logs)."
 
       - name: Record endpoints in maintainer-only repo variables
+        # The default GITHUB_TOKEN cannot write repo Actions variables
+        # (the Variables API requires a token with the explicit
+        # `Variables: read & write` permission, which only a PAT or a
+        # GitHub App token can carry — see README → "Setting REPO_VAR_TOKEN").
+        # If the secret is unset we skip this step instead of failing the
+        # release; the URLs are still available in CloudFormation outputs.
+        if: ${{ secrets.REPO_VAR_TOKEN != '' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_VAR_TOKEN }}
           API_URL: ${{ steps.outputs.outputs.api_url }}
           WEB_URL: ${{ steps.outputs.outputs.web_url }}
           STAGE_UPPER: ${{ env.STAGE }}
@@ -170,6 +179,11 @@ jobs:
           #   Settings → Secrets and variables → Actions → Variables.
           gh variable set "BACKEND_API_URL_${stage_upper}" --body "$API_URL"
           gh variable set "BACKEND_WEB_URL_${stage_upper}" --body "$WEB_URL"
+
+      - name: Notice if REPO_VAR_TOKEN is unset
+        if: ${{ secrets.REPO_VAR_TOKEN == '' }}
+        run: |
+          echo "::notice::REPO_VAR_TOKEN secret not set; skipped writing BACKEND_API_URL_* / BACKEND_WEB_URL_* repo variables. Read the URLs from CloudFormation outputs (\`backend/aws/scripts/print-outputs.mjs\`). See README → 'Setting REPO_VAR_TOKEN' to enable automatic recording."
 
   smoke:
     needs: deploy
