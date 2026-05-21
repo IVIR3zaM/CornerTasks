@@ -28,6 +28,11 @@ on:
         required: false
         type: string
         default: ''
+      attach_release:
+        description: 'Create/update the GitHub release after a successful deploy. The umbrella (release-all.yml) sets this to false and finalizes once after all components succeed.'
+        required: false
+        type: boolean
+        default: true
     outputs:
       web_url:
         description: 'WebUrl of the deployed stack'
@@ -161,7 +166,9 @@ jobs:
 
   publish-release:
     needs: deploy
-    if: needs.deploy.result == 'success'
+    if: |
+      needs.deploy.result == 'success' &&
+      (github.event_name != 'workflow_call' || inputs.attach_release)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

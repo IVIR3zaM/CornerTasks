@@ -30,6 +30,11 @@ on:
         description: 'GitHub release tag to attach to (e.g. v0.3.0 or macos-v0.2.1).'
         required: true
         type: string
+      attach_release:
+        description: 'Attach the DMG to the GitHub release after a successful build. The umbrella sets this to false and downloads the DMG artifact in its finalize step instead.'
+        required: false
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       version:
@@ -88,6 +93,7 @@ jobs:
           path: apps/macos/release/CornerTasks-${{ steps.ver.outputs.version }}-universal.dmg
 
       - name: Attach DMG to GitHub release
+        if: ${{ github.event_name != 'workflow_call' || inputs.attach_release }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.release_tag }}

@@ -1,6 +1,11 @@
 # Umbrella release: fires on a `v*` tag (e.g. `v0.3.0`) and orchestrates a
-# coordinated release of every enabled component at the same version,
-# attaching their artifacts and deploy URLs to a single GitHub release.
+# coordinated release of every enabled component at the same version.
+#
+# Atomicity contract: either every enabled component succeeds AND a single
+# GitHub release is published, OR no GitHub release is created and the tag
+# is deleted so you can fix and re-push. Component workflows are invoked
+# with `attach_release: false`, which suppresses their own release-publish
+# step — the umbrella does it once at the end via the `finalize` job.
 #
 # Each component is gated by a repo *variable* (Settings → Variables) so
 # you can selectively disable any one without touching this file:
@@ -11,12 +16,16 @@
 #
 # To add a new component later (e.g. Docker backend, iOS app, …):
 #   1. Write a `release-<thing>.yml` exposing both a `<thing>-v*` tag
-#      trigger and a `workflow_call` interface (mirror release-backend.yml).
-#   2. Add a job below: `needs: [resolve, create-release]`, gated by a new
-#      `RELEASE_<THING>_ENABLED` variable.
+#      trigger and a `workflow_call` interface with an `attach_release`
+#      boolean input (mirror release-backend.yml).
+#   2. Add a job below: `needs: resolve`, gated by a new
+#      `RELEASE_<THING>_ENABLED` variable, called with
+#      `attach_release: false`.
+#   3. Extend the `finalize` job's `if:` and notes block to include it.
+#   4. Extend `cleanup-on-failure`'s `if:` so it triggers on that job too.
 #
 # Component-scoped hotfix tags (`backend-v*`, `web-v*`, `macos-v*`) bypass
-# this orchestrator and trigger their workflow directly — see those files.
+# this orchestrator and publish atomically on their own — see those files.
 name: Release (umbrella)
 
 on:
@@ -37,7 +46,7 @@ jobs:
   resolve:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.out.outputs.version }}
+      version:     ${{ steps.out.outputs.version }}
       release_tag: ${{ steps.out.outputs.release_tag }}
     steps:
       - id: out
@@ -54,51 +63,131 @@ jobs:
           echo "release_tag=$tag"  >> "$GITHUB_OUTPUT"
           echo "Releasing $tag (version $v)"
 
-  create-release:
-    needs: resolve
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Create / refresh GitHub release shell
-        # Each component release job will append its artifacts and notes to
-        # this same release via softprops/action-gh-release.
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.resolve.outputs.release_tag }}
-          name: CornerTasks ${{ needs.resolve.outputs.release_tag }}
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-
   backend:
-    needs: [resolve, create-release]
+    needs: resolve
     if: vars.RELEASE_BACKEND_AWS_ENABLED != 'false'
     uses: ./.github/workflows/release-backend.yml
     with:
-      version:     ${{ needs.resolve.outputs.version }}
-      release_tag: ${{ needs.resolve.outputs.release_tag }}
+      version:        ${{ needs.resolve.outputs.version }}
+      release_tag:    ${{ needs.resolve.outputs.release_tag }}
+      attach_release: false
     secrets: inherit
 
   web:
-    # Runs after backend so a fresh ApiUrl is available for any consumers
-    # that want to chain off it. `always()` lets web ship even if backend
-    # was skipped (disabled) — but not if backend ran and failed.
-    needs: [resolve, create-release, backend]
+    # Runs after backend so a fresh ApiUrl is available. `always()` lets web
+    # ship even if backend was skipped (disabled) — but not if backend ran
+    # and failed: in that case `finalize` will be skipped and the cleanup
+    # job will delete the tag.
+    needs: [resolve, backend]
     if: |
       always() &&
       vars.RELEASE_WEB_ENABLED != 'false' &&
       (needs.backend.result == 'success' || needs.backend.result == 'skipped')
     uses: ./.github/workflows/release-web.yml
     with:
-      version:     ${{ needs.resolve.outputs.version }}
-      release_tag: ${{ needs.resolve.outputs.release_tag }}
+      version:        ${{ needs.resolve.outputs.version }}
+      release_tag:    ${{ needs.resolve.outputs.release_tag }}
+      attach_release: false
     secrets: inherit
 
   macos:
-    needs: [resolve, create-release]
+    needs: resolve
     if: vars.RELEASE_MACOS_ENABLED != 'false'
     uses: ./.github/workflows/release.yml
     with:
-      version:     ${{ needs.resolve.outputs.version }}
-      release_tag: ${{ needs.resolve.outputs.release_tag }}
+      version:        ${{ needs.resolve.outputs.version }}
+      release_tag:    ${{ needs.resolve.outputs.release_tag }}
+      attach_release: false
     secrets: inherit
+
+  finalize:
+    # Run only when every component that wasn't disabled actually succeeded,
+    # and at least one component ran successfully. This is the single place
+    # a GitHub release is created for an umbrella `v*` tag.
+    needs: [resolve, backend, web, macos]
+    if: |
+      always() &&
+      (needs.backend.result == 'success' || needs.backend.result == 'skipped') &&
+      (needs.web.result == 'success'     || needs.web.result == 'skipped') &&
+      (needs.macos.result == 'success'   || needs.macos.result == 'skipped') &&
+      (needs.backend.result == 'success' || needs.web.result == 'success' || needs.macos.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download macOS DMG artifact (if macOS shipped)
+        if: needs.macos.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: CornerTasks-${{ needs.resolve.outputs.version }}-universal
+          path: ./dist
+
+      - name: Compose release notes body
+        id: notes
+        env:
+          BACKEND_RESULT:  ${{ needs.backend.result }}
+          WEB_RESULT:      ${{ needs.web.result }}
+          MACOS_RESULT:    ${{ needs.macos.result }}
+          # Backend URLs are *not* echoed into the public release body — per
+          # the BYO-AWS model the maintainer's endpoint is private. We only
+          # note that the backend was released and smoke-tested.
+        run: |
+          set -euo pipefail
+          {
+            echo "CornerTasks ${{ needs.resolve.outputs.release_tag }}"
+            echo ""
+            if [ "$BACKEND_RESULT" = "success" ]; then
+              echo "- **Backend (AWS)** v${{ needs.resolve.outputs.version }} deployed and smoke-tested."
+            fi
+            if [ "$WEB_RESULT" = "success" ]; then
+              echo "- **Web** v${{ needs.resolve.outputs.version }} deployed."
+            fi
+            if [ "$MACOS_RESULT" = "success" ]; then
+              echo "- **macOS** v${{ needs.resolve.outputs.version }} universal DMG attached below."
+            fi
+          } > /tmp/release-body.md
+          echo "body_path=/tmp/release-body.md" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve.outputs.release_tag }}
+          name: CornerTasks ${{ needs.resolve.outputs.release_tag }}
+          generate_release_notes: true
+          append_body: true
+          body_path: ${{ steps.notes.outputs.body_path }}
+          files: ./dist/CornerTasks-${{ needs.resolve.outputs.version }}-universal.dmg
+          fail_on_unmatched_files: false
+
+  cleanup-on-failure:
+    # Roll back to a clean "tagless" state if anything went wrong. This is
+    # what makes the umbrella atomic from the user's perspective: either a
+    # release exists for the tag, or neither tag nor release does.
+    #
+    # Note: AWS deploys cannot be rolled back here — once `sam deploy` or
+    # `aws s3 sync` completes, that change is real. What this *does* prevent
+    # is the public artefacts of a partial release: tag, GitHub release,
+    # downloaded DMG. You can fix the failing component and re-push the tag.
+    needs: [resolve, backend, web, macos, finalize]
+    if: |
+      always() &&
+      (
+        needs.backend.result  == 'failure'  || needs.backend.result  == 'cancelled' ||
+        needs.web.result      == 'failure'  || needs.web.result      == 'cancelled' ||
+        needs.macos.result    == 'failure'  || needs.macos.result    == 'cancelled' ||
+        needs.finalize.result == 'failure'  || needs.finalize.result == 'cancelled'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          # If `finalize` errored partway through release creation, drop it.
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          # Delete the underlying tag so the user can re-push after fixing.
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/$TAG" 2>/dev/null || true
+          echo "::warning::Umbrella release failed. Deleted tag $TAG and any partial release. Fix the failing component, push the tag again to retry."

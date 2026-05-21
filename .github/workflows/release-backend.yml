@@ -39,6 +39,11 @@ on:
         required: false
         type: string
         default: ''
+      attach_release:
+        description: 'Create/update the GitHub release after a successful deploy. The umbrella (release-all.yml) sets this to false and finalizes once after all components succeed, so a backend failure does not leave a half-published release behind.'
+        required: false
+        type: boolean
+        default: true
     outputs:
       api_url:
         description: 'ApiUrl of the deployed stack'
@@ -199,7 +204,13 @@ jobs:
 
   publish-release:
     needs: [deploy, smoke]
-    if: needs.smoke.result == 'success'
+    # Skip publishing when the umbrella will finalize the release. The
+    # umbrella passes `attach_release: false`; tag-push and dispatch runs
+    # leave the input undefined, so the default (true) applies and this
+    # job publishes the standalone backend-v* release.
+    if: |
+      needs.smoke.result == 'success' &&
+      (github.event_name != 'workflow_call' || inputs.attach_release)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
