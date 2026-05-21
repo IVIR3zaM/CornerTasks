@@ -77,20 +77,22 @@ jobs:
         id: resolve
         run: |
           set -euo pipefail
-          case "${{ github.event_name }}" in
-            workflow_call)
-              v="${{ inputs.version }}"
-              tag="${{ inputs.release_tag }}"
-              ;;
-            workflow_dispatch)
-              v="$(node -p "require('./apps/web/package.json').version")"
-              tag="web-v$v"
-              ;;
-            *) # push of web-v* tag
-              tag="${GITHUB_REF_NAME}"
-              v="${tag#web-v}"
-              ;;
-          esac
+          # `github.event_name` reflects the *caller's* trigger inside a
+          # reusable workflow (e.g. `push` when the umbrella invokes us),
+          # so discriminate on whether the umbrella-only `release_tag`
+          # input was actually passed.
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            # workflow_call (umbrella)
+            v="${{ inputs.version }}"
+            tag="${{ inputs.release_tag }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v="$(node -p "require('./apps/web/package.json').version")"
+            tag="web-v$v"
+          else
+            # push of web-v* tag
+            tag="${GITHUB_REF_NAME}"
+            v="${tag#web-v}"
+          fi
           echo "version=$v"        >> "$GITHUB_OUTPUT"
           echo "release_tag=$tag"  >> "$GITHUB_OUTPUT"
           echo "Releasing web $v → GitHub release $tag"
@@ -166,9 +168,12 @@ jobs:
 
   publish-release:
     needs: deploy
+    # `inputs.release_tag` is only ever set by the umbrella; standalone
+    # tag pushes and dispatch leave it empty, so this still publishes
+    # for those triggers.
     if: |
       needs.deploy.result == 'success' &&
-      (github.event_name != 'workflow_call' || inputs.attach_release)
+      (inputs.release_tag == '' || inputs.attach_release)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

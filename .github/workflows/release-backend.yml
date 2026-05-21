@@ -97,22 +97,31 @@ jobs:
 
       - name: Resolve version + release tag
         id: resolve
+        env:
+          # `github.event_name` reflects the *caller's* trigger inside a
+          # reusable workflow (e.g. `push` when the umbrella invokes us),
+          # so we discriminate on whether the umbrella-only `release_tag`
+          # input was actually passed.
+          IN_VERSION:     ${{ inputs.version }}
+          IN_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          case "${{ github.event_name }}" in
-            workflow_call)
-              v="${{ inputs.version }}"
-              tag="${{ inputs.release_tag }}"
-              ;;
-            workflow_dispatch)
-              v="$(node -p "require('./backend/aws/package.json').version")"
-              tag="backend-v$v"
-              ;;
-            *) # push of backend-v* tag
-              tag="${GITHUB_REF_NAME}"
-              v="${tag#backend-v}"
-              ;;
-          esac
+          if [ -n "$IN_RELEASE_TAG" ]; then
+            # workflow_call (umbrella)
+            v="$IN_VERSION"
+            tag="$IN_RELEASE_TAG"
+          elif [ -n "$IN_VERSION" ]; then
+            # workflow_dispatch with explicit version (none defined here today)
+            v="$IN_VERSION"
+            tag="backend-v$v"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v="$(node -p "require('./backend/aws/package.json').version")"
+            tag="backend-v$v"
+          else
+            # push of backend-v* tag
+            tag="${GITHUB_REF_NAME}"
+            v="${tag#backend-v}"
+          fi
           echo "version=$v"        >> "$GITHUB_OUTPUT"
           echo "release_tag=$tag"  >> "$GITHUB_OUTPUT"
           echo "Releasing backend $v → GitHub release $tag"
@@ -157,14 +166,16 @@ jobs:
             echo "::error::Stack $stack has no ApiUrl output."
             exit 1
           fi
-          # Mask the URLs so they're redacted from any subsequent log line,
-          # job summary, or downstream job that prints them. Job outputs
-          # still propagate to the smoke job over the encrypted channel.
-          echo "::add-mask::$api_url"
-          echo "::add-mask::$web_url"
+          # Do NOT `::add-mask::` these before writing them as job outputs:
+          # masked values are stripped to empty strings when passed across
+          # the `workflow_call` boundary, which would silently break smoke
+          # (smoke-test.yml's resolve would see empty `inputs.api_url` and
+          # skip the actual test). Nothing downstream echoes the URLs in
+          # plain text — the smoke job reads them via env and the public
+          # release body intentionally omits them.
           echo "api_url=$api_url" >> "$GITHUB_OUTPUT"
           echo "web_url=$web_url" >> "$GITHUB_OUTPUT"
-          echo "Captured ApiUrl and WebUrl (redacted from logs)."
+          echo "Captured ApiUrl and WebUrl."
 
       - name: Record endpoints in maintainer-only repo variables
         # The default GITHUB_TOKEN cannot write repo Actions variables
@@ -208,9 +219,12 @@ jobs:
     # umbrella passes `attach_release: false`; tag-push and dispatch runs
     # leave the input undefined, so the default (true) applies and this
     # job publishes the standalone backend-v* release.
+    # `inputs.release_tag` is only ever set by the umbrella; standalone
+    # tag pushes and dispatch leave it empty, so the gate falls through
+    # to the default attach-true behaviour for those triggers.
     if: |
       needs.smoke.result == 'success' &&
-      (github.event_name != 'workflow_call' || inputs.attach_release)
+      (inputs.release_tag == '' || inputs.attach_release)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

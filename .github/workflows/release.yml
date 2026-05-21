@@ -58,22 +58,28 @@ jobs:
 
       - name: Resolve version + release tag
         id: ver
+        env:
+          # `github.event_name` reflects the *caller's* trigger inside a
+          # reusable workflow (e.g. `push` when the umbrella invokes us),
+          # so we discriminate on whether the umbrella-only `release_tag`
+          # input was actually passed.
+          IN_VERSION:     ${{ inputs.version }}
+          IN_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          case "${{ github.event_name }}" in
-            workflow_call)
-              v="${{ inputs.version }}"
-              tag="${{ inputs.release_tag }}"
-              ;;
-            workflow_dispatch)
-              v="${{ inputs.version }}"
-              tag="macos-v$v"
-              ;;
-            *) # push of macos-v* tag
-              tag="${GITHUB_REF_NAME}"
-              v="${tag#macos-v}"
-              ;;
-          esac
+          if [ -n "$IN_RELEASE_TAG" ]; then
+            # workflow_call (umbrella)
+            v="$IN_VERSION"
+            tag="$IN_RELEASE_TAG"
+          elif [ -n "$IN_VERSION" ]; then
+            # workflow_dispatch
+            v="$IN_VERSION"
+            tag="macos-v$v"
+          else
+            # push of macos-v* tag
+            tag="${GITHUB_REF_NAME}"
+            v="${tag#macos-v}"
+          fi
           echo "version=$v"        >> "$GITHUB_OUTPUT"
           echo "release_tag=$tag"  >> "$GITHUB_OUTPUT"
           echo "Building macOS $v → GitHub release $tag"
@@ -93,7 +99,10 @@ jobs:
           path: apps/macos/release/CornerTasks-${{ steps.ver.outputs.version }}-universal.dmg
 
       - name: Attach DMG to GitHub release
-        if: ${{ github.event_name != 'workflow_call' || inputs.attach_release }}
+        # Skip when the umbrella will finalize the release (it passes
+        # `release_tag` and `attach_release: false`); standalone tag pushes
+        # and dispatches leave `release_tag` empty so this still attaches.
+        if: ${{ inputs.release_tag == '' || inputs.attach_release }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.release_tag }}
