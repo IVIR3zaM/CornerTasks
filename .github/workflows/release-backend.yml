@@ -67,6 +67,10 @@ jobs:
     env:
       STAGE: ${{ inputs.stage != '' && inputs.stage || (vars.STAGE != '' && vars.STAGE || 'prod') }}
       AWS_REGION: ${{ vars.AWS_REGION }}
+      # `secrets.*` is not a valid context inside step-level `if:`, so we
+      # surface its presence as a boolean env var that the variable-write
+      # step (and its sibling notice step) can branch on.
+      HAS_REPO_VAR_TOKEN: ${{ secrets.REPO_VAR_TOKEN != '' && 'true' || 'false' }}
     outputs:
       api_url:     ${{ steps.outputs.outputs.api_url }}
       web_url:     ${{ steps.outputs.outputs.web_url }}
@@ -164,7 +168,7 @@ jobs:
         # GitHub App token can carry — see README → "Setting REPO_VAR_TOKEN").
         # If the secret is unset we skip this step instead of failing the
         # release; the URLs are still available in CloudFormation outputs.
-        if: ${{ secrets.REPO_VAR_TOKEN != '' }}
+        if: env.HAS_REPO_VAR_TOKEN == 'true'
         env:
           GH_TOKEN: ${{ secrets.REPO_VAR_TOKEN }}
           API_URL: ${{ steps.outputs.outputs.api_url }}
@@ -181,7 +185,7 @@ jobs:
           gh variable set "BACKEND_WEB_URL_${stage_upper}" --body "$WEB_URL"
 
       - name: Notice if REPO_VAR_TOKEN is unset
-        if: ${{ secrets.REPO_VAR_TOKEN == '' }}
+        if: env.HAS_REPO_VAR_TOKEN == 'false'
         run: |
           echo "::notice::REPO_VAR_TOKEN secret not set; skipped writing BACKEND_API_URL_* / BACKEND_WEB_URL_* repo variables. Read the URLs from CloudFormation outputs (\`backend/aws/scripts/print-outputs.mjs\`). See README → 'Setting REPO_VAR_TOKEN' to enable automatic recording."
 
