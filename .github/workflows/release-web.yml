@@ -77,7 +77,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Resolve version + release tag
         id: resolve
@@ -103,7 +103,7 @@ jobs:
           echo "release_tag=$tag"  >> "$GITHUB_OUTPUT"
           echo "Releasing web $v → GitHub release $tag"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
           cache: 'npm'
@@ -112,7 +112,7 @@ jobs:
             backend/aws/package-lock.json
 
       - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
@@ -185,7 +185,7 @@ jobs:
       (inputs.release_tag == '' || inputs.attach_release)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Append deployed endpoints to release
         uses: softprops/action-gh-release@v2
         with:

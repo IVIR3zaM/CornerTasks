@@ -108,9 +108,9 @@ jobs:
       # once you have a long-lived test account.
       CT_MNEMONIC: ${{ secrets.CT_MNEMONIC != '' && secrets.CT_MNEMONIC || 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
           cache: 'npm'
