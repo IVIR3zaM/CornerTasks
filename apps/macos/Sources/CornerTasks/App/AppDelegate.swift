@@ -112,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             p.titleVisibility = .hidden
             p.standardWindowButton(.miniaturizeButton)?.isHidden = true
             p.standardWindowButton(.zoomButton)?.isHidden = true
+            p.appearance = NSAppearance(named: .darkAqua)
             p.contentViewController = hosting
             p.minSize = NSSize(width: 280, height: 200)
             // Don't let macOS persist a smaller frame from a previous session.
