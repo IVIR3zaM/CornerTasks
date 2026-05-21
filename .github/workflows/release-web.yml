@@ -44,6 +44,12 @@ on:
         required: false
         default: ''
 
+# Opt in to Node.js 24 for JS-based actions ahead of the 2026-06-02
+# default flip; silences the deprecation warning without bumping every
+# `actions/*@v4` pin. Drop once the actions ship v5 across the board.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 permissions:
   id-token: write
   contents: write
@@ -143,7 +149,10 @@ jobs:
             exit 1
           fi
           echo "web_url=$web_url" >> "$GITHUB_OUTPUT"
-          echo "WebUrl: $web_url"
+          # Do NOT echo $web_url to logs — the maintainer's BYO-AWS WebUrl
+          # is private and GitHub Actions logs are world-readable for
+          # public repos. The smoke step below uses it via env only.
+          echo "WebUrl captured."
 
       - name: Smoke — fetch WebUrl
         env:
@@ -163,7 +172,7 @@ jobs:
             fi
             sleep 10
           done
-          echo "::error::WebUrl $WEB_URL did not return 200 + HTML."
+          echo "::error::WebUrl did not return 200 + HTML after 5 attempts."
           exit 1
 
   publish-release:

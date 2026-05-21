@@ -127,13 +127,17 @@ async function main(): Promise<void> {
   const publicKey = await ed.getPublicKey(identitySeed);
   const did = didFromPublicKey(publicKey);
   console.log(`sync-doctor: DID = ${did}`);
-  console.log(`sync-doctor: API = ${apiUrl}`);
+  // Intentionally do NOT log `apiUrl` or `audience` here: this script runs
+  // in CI from release-backend.yml against the maintainer's private
+  // BYO-AWS endpoint, and GitHub Actions logs are world-readable for
+  // public repos. The DID is enough to debug auth failures; the request
+  // path below identifies the wire step on its own.
 
   // 1. challenge
   const ch = await postJson(`${apiUrl}/v1/auth/challenge`, { accountDid: did });
   if (ch.status !== 200) fail('POST /v1/auth/challenge', ch.status, ch.body);
   const { challenge, audience } = ch.body as { challenge: string; audience: string };
-  console.log(`sync-doctor: got challenge (audience=${audience})`);
+  console.log('sync-doctor: got challenge');
 
   // 2. DID-JWT → bearer
   const iat = Math.floor(Date.now() / 1000);

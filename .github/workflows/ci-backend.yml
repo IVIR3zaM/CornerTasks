@@ -11,6 +11,12 @@ on:
       - 'backend/aws/**'
       - '.github/workflows/ci-backend.yml'
 
+# Opt in to Node.js 24 for JS-based actions ahead of the 2026-06-02
+# default flip; silences the deprecation warning without bumping every
+# `actions/*@v4` pin. Drop once the actions ship v5 across the board.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 permissions:
   contents: read
 
