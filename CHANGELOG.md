@@ -31,15 +31,53 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   test + build) for all components with an optional `SCOPES` flag for targeted
   runs; `.githooks/pre-commit` stashes unstaged changes and narrows to touched
   paths so tests reflect the staged snapshot.
-- **Backend URL masking:** `ApiUrl` / `WebUrl` are masked from CI logs with
-  `::add-mask::` and stored as maintainer-only repo Actions variables via a
-  fine-grained PAT (`REPO_VAR_TOKEN`), instead of being printed in the release
-  body.
+- **Backend URL handling:** `ApiUrl` / `WebUrl` are not echoed in CI logs and
+  the public release body intentionally omits them; they are stored as
+  maintainer-only repo Actions variables via a fine-grained PAT
+  (`REPO_VAR_TOKEN`). An earlier attempt that used `::add-mask::` for this
+  was reverted — masked values are stripped to empty strings when passed
+  across the `workflow_call` boundary, which silently broke the post-deploy
+  smoke (resolve saw an empty `inputs.api_url` and skipped the actual test
+  while the reusable workflow still reported `success`).
 - **`secrets.*` in step `if:` fix:** GitHub Actions rejects `secrets.*` in
   step-level `if:` expressions; routed through an `env:` boolean
   (`HAS_REPO_VAR_TOKEN`) instead.
 - **`actions: write` on umbrella workflow:** granted so `release-all.yml` can
   call component reusable workflows.
+
+### CI / Infra — rollback fixes (re-tagged v0.2.1)
+
+The first `v0.2.1` umbrella run was rolled back; the re-tag includes the
+following fixes for bugs uncovered by that run:
+
+- **`workflow_call` detection in reusable workflows:** inside a workflow
+  invoked via `workflow_call`, `github.event_name` reflects the *caller's*
+  trigger (e.g. `push`), not `"workflow_call"`, so every
+  `case "${{ github.event_name }}" in workflow_call) ...` discriminator in
+  `release.yml` / `release-backend.yml` / `release-web.yml` was dead code.
+  This caused the macOS resolve step to set `v=v0.2.1` (stripping the
+  non-matching `macos-v` prefix from `v0.2.1`), uploading the DMG as
+  `CornerTasks-v0.2.1-universal` while the umbrella's `finalize` tried to
+  download `CornerTasks-0.2.1-universal` → not found. The component
+  `publish-release` jobs were also breaking the umbrella's "single
+  publisher" contract for the same reason. Fix: discriminate on
+  `inputs.release_tag != ''` (only the umbrella sets it) for both the
+  version/tag resolve and the publish gates.
+- **Smoke fails loudly on empty `api_url`:** `smoke-test.yml` now errors
+  (rather than silently skipping) when reached with no ApiUrl under any
+  event other than `pull_request` / `workflow_dispatch`, so any future
+  regression on the workflow_call boundary trips the umbrella's cleanup
+  instead of marking smoke as a no-op success.
+- **`sync-doctor` log scrub:** stopped printing the raw `apiUrl` and the
+  server-returned `audience` (which is the canonical ApiUrl). Only the
+  account DID is logged; the wire-step labels carry the rest.
+- **`release-web.yml` log scrub:** removed the `echo "WebUrl: $web_url"`
+  from `Capture stack outputs` and dropped the `$WEB_URL` value from the
+  final smoke-error message.
+- **Node.js 24 opt-in:** set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'`
+  at workflow level across all eight workflow files to silence the Node 20
+  deprecation warning ahead of the 2026-06-02 default flip without pinning
+  every `actions/*@v4` to v5 individually.
 
 ## [v0.2.0] — 2026-05-08
 
