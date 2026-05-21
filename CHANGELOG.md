@@ -3,6 +3,44 @@
 All notable changes to CornerTasks are recorded here. Dates are ISO-8601.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.1] — 2026-05-21
+
+### Fixed
+
+- **Web due-date picker:** replaced the custom popover + Save/Cancel flow with
+  a direct `showPicker()` call on a hidden `<input type="date">` — clicking the
+  calendar icon now opens the OS picker in one step, matching the single-step
+  flow users expect from the macOS app.
+- **macOS panel appearance:** force-sets `NSAppearance` to `darkAqua` so the
+  panel always renders in dark mode regardless of the system theme.
+
+### CI / Infra
+
+- **Tag-driven release pipeline:** umbrella `v*` tag orchestrates all
+  components (backend → web → macOS) in order; scoped `backend-v*` / `web-v*`
+  / `macos-v*` tags allow per-component hotfixes. OIDC-based AWS deploys
+  replace manual `workflow_dispatch`.
+- **All-or-nothing umbrella releases:** components no longer publish their own
+  GitHub release slice. The umbrella creates a single release after all
+  components succeed; on any failure the partial release and its git tag are
+  deleted automatically so the tag can be re-pushed after fixing.
+- **Node 22+ / Lambda `nodejs24.x`:** minimum Node raised from 20 → 22 across
+  `apps/web` and `backend/aws`; CI workflows upgraded to Node 24; esbuild
+  targets and `@types/node` aligned.
+- **Pre-commit test gate:** `scripts/test-all.sh` mirrors CI exactly (lint +
+  test + build) for all components with an optional `SCOPES` flag for targeted
+  runs; `.githooks/pre-commit` stashes unstaged changes and narrows to touched
+  paths so tests reflect the staged snapshot.
+- **Backend URL masking:** `ApiUrl` / `WebUrl` are masked from CI logs with
+  `::add-mask::` and stored as maintainer-only repo Actions variables via a
+  fine-grained PAT (`REPO_VAR_TOKEN`), instead of being printed in the release
+  body.
+- **`secrets.*` in step `if:` fix:** GitHub Actions rejects `secrets.*` in
+  step-level `if:` expressions; routed through an `env:` boolean
+  (`HAS_REPO_VAR_TOKEN`) instead.
+- **`actions: write` on umbrella workflow:** granted so `release-all.yml` can
+  call component reusable workflows.
+
 ## [v0.2.0] — 2026-05-08
 
 Multi-platform release. The macOS app moved under `apps/macos/`, a mobile-first
@@ -70,5 +108,6 @@ account.
   with one-shot migration from a legacy `tasks.json`.
 - Dock icon toggle (menu bar icon always present).
 
+[v0.2.1]: https://github.com/IVIR3zaM/CornerTasks/releases/tag/v0.2.1
 [v0.2.0]: https://github.com/IVIR3zaM/CornerTasks/releases/tag/v0.2.0
 [v0.1.0]: https://github.com/IVIR3zaM/CornerTasks/releases/tag/v0.1.0
