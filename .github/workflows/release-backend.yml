@@ -138,7 +138,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: backend/aws/package-lock.json
 
-      - uses: aws-actions/setup-sam@v4
+      - uses: aws-actions/setup-sam@v3
         with:
           use-installer: true
 
