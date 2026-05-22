@@ -1,12 +1,12 @@
-import SwiftUI
+import AppKit
 
 @main
-struct CornerTasksApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+enum CornerTasksMain {
+    static let delegate = AppDelegate()
 
-    var body: some Scene {
-        Settings {
-            EmptyView()
-        }
+    static func main() {
+        let app = NSApplication.shared
+        app.delegate = delegate
+        app.run()
     }
 }
