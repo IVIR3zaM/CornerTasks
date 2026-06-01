@@ -1,10 +1,8 @@
 {
   "$schema": "../../../schema/overlay.schema.json",
   "screen": "settings",
-  "reason": "macOS removes QR import (no camera/scanner; privacy constraint), adds the Show-in-Dock toggle (macOS-only capability), and exposes a Debug section that web does not need.",
+  "reason": "macOS adds the Show-in-Dock toggle (macOS-only capability) and exposes a Debug section that web does not need. Show-QR-code is *not* removed — macOS generates and displays the QR for another device to scan; only camera-based QR *scanning* is web-only (and lives in web's overlay).",
   "ops": [
-    { "op": "hide", "target": "settings.account.qr" },
-
     {
       "op": "insert",
       "target": { "parent": "settings.stack", "position": "prepend" },

@@ -9,10 +9,11 @@ Always-on-top side panel pinned to the right edge of the screen: add, edit (doub
 Screen structure lives in [`design/`](../../design/README.md). The macOS-specific
 divergences are in [`design/platforms/macos/overlays/`](../../design/platforms/macos/overlays/):
 
-- **`settings.json` overlay** — hides the QR-code-display block (no camera /
-  scanner on macOS; privacy constraint), adds an Appearance section with the
+- **`settings.json` overlay** — adds an Appearance section with the
   Show-in-Dock toggle, and adds a Debug section (log level, copy diagnostics,
-  reset state, force crash).
+  reset state, force crash). The QR-code *display* is in the base schema and
+  shown on both platforms; only camera-based QR *scanning* is web-only and
+  lives in the web overlay.
 
 To consume the schema from SwiftUI, read the merged tree for `macos`
 (base screen + overlay; the validator's `applyOverlay` is the reference

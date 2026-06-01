@@ -24,10 +24,12 @@
       "ui.draftTitle",
       "ui.activeTab",
       "ui.showMnemonic",
+      "ui.showQR",
       "ui.showEnableSheet",
       "ui.enableUrl",
       "account.did",
       "account.mnemonic",
+      "account.qrPng",
       "device.id",
       "tasks.active",
       "tasks.archived"

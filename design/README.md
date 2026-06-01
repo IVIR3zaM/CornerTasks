@@ -168,10 +168,12 @@ the result:
 
 `settings.json` is the complete base. The two overlays:
 
-| platform | hides                | inserts                          | reason                                  |
-|----------|----------------------|----------------------------------|-----------------------------------------|
-| macos    | `settings.account.qr`| `settings.appearance` (Show in Dock toggle), `settings.debug` (log level, copy diagnostics, reset state, force crash) | privacy: macOS has no scanner/QR display; dock + debug are macOS-only capabilities |
-| web      | —                    | `settings.account.qrScan` (QR-scan disclosure inside Account) | web has camera; can import an account from another device |
+| platform | hides | inserts                          | reason                                  |
+|----------|-------|----------------------------------|-----------------------------------------|
+| macos    | —     | `settings.appearance` (Show in Dock toggle), `settings.debug` (log level, copy diagnostics, reset state, force crash) | dock + debug are macOS-only capabilities |
+| web      | —     | `settings.account.qrScan` (camera-based QR-scan disclosure inside Account) | web has camera; can import an account from another device by scanning the macOS-generated QR |
+
+Note that **both platforms show the QR code** (used to transfer an account to another device); only camera-based QR *scanning* is web-only.
 
 Run `make design-validate` for the live parity report.
 
