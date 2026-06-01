@@ -82,22 +82,25 @@ Then in the app: **Settings → Cloud Sync → Enable** → paste the `ApiUrl` �
 
 Full IAM/permissions list and the optional GitHub Actions OIDC deploy template live in `backend/aws/README.md` (added in iteration 3). The maintainer's GitHub repo carries no AWS secrets; downstream forks wire up their own.
 
-## Repository layout (target for v0.2.0)
+## Repository layout
 
 ```
 .
 ├── apps/
-│   ├── macos/    — Swift app (currently still at the repo root in v0.1.0)
-│   └── web/      — mobile-first web app (added in v0.2.0)
+│   ├── macos/    — Swift / SwiftUI app
+│   └── web/      — mobile-first web app (Vite + React + TS)
 ├── backend/
 │   └── aws/      — TypeScript serverless (DynamoDB)
+├── design/       — design-as-code: JSON tokens, components, screens,
+│                   per-platform overlays, validator, previewer
 ├── docs/         — protocol / encryption / sync notes
+├── scripts/      — test-all.sh and friends
 ├── AGENTS.md
 ├── README.md
 └── ITERATIONS.md — ordered v0.2.0 work plan
 ```
 
-In v0.1.0 the macOS app lived at the repo root; v0.2.0 moved it under `apps/macos/` alongside the new `apps/web/` and `backend/aws/` trees.
+In v0.1.0 the macOS app lived at the repo root; v0.2.0 moved it under `apps/macos/` alongside the new `apps/web/` and `backend/aws/` trees, and added `design/` as the platform-agnostic source of truth for UI structure.
 
 ## Requirements
 
