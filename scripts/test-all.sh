@@ -69,14 +69,20 @@ if want macos; then
   fi
 fi
 
+# Optional helpers below: `command -v` can succeed for an asdf/mise shim
+# whose underlying tool isn't actually installed (the shim exits 126). Probe
+# with `--version` first so a missing tool is silently skipped rather than
+# aborting the whole run.
+have() { command -v "$1" >/dev/null 2>&1 && "$1" --version >/dev/null 2>&1; }
+
 # ---- workflow file sanity (optional; runs only if actionlint is installed)
-if command -v actionlint >/dev/null 2>&1; then
+if have actionlint; then
   blue "actionlint — .github/workflows/*.yml"
   actionlint
 fi
 
 # ---- shell sanity (optional; runs only if shellcheck is installed) -------
-if command -v shellcheck >/dev/null 2>&1; then
+if have shellcheck; then
   blue "shellcheck — scripts and hooks"
   # -x to follow sourced files; ignore vendored dirs.
   shellcheck -x scripts/*.sh .githooks/* apps/macos/build.sh apps/macos/vanish.sh

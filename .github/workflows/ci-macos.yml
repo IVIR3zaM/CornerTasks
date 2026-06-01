@@ -2,14 +2,8 @@ name: CI (apps/macos)
 
 on:
   pull_request:
-    paths:
-      - 'apps/macos/**'
-      - '.github/workflows/ci-macos.yml'
   push:
     branches: [main]
-    paths:
-      - 'apps/macos/**'
-      - '.github/workflows/ci-macos.yml'
 
 # Opt in to Node.js 24 for JS-based actions ahead of the 2026-06-02
 # default flip; silences the deprecation warning without bumping every
