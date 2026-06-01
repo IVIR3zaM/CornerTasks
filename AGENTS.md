@@ -98,6 +98,10 @@ In v0.1.0 the macOS app lives at the repo root. Iteration 1 in [`ITERATIONS.md`]
 - **Per-row dynamic content** — task/archive row internals are still in app code.
 - **Pixel-perfect rendering** — the previewer approximates hierarchy/spacing, not the real apps.
 
+### Icon registry
+
+`design/icons.json` is the single source of truth for every glyph. Each name maps to its `sfSymbol` (macOS) and one or more inline SVG `paths` (web + previewer). Add or rename an icon by editing this file *first*; the `Icon` component's `name` enum is checked against the registry keys. Don't redefine glyphs independently in `apps/macos` or `apps/web` — read from the registry.
+
 ### Hard rules — enforced by `make design-validate`
 
 1. **Never put literal colors, spacings, or font sizes in a screen.** Use token refs like `"{color.surface}"` or `"{spacing.6}"`.
@@ -106,7 +110,9 @@ In v0.1.0 the macOS app lives at the repo root. Iteration 1 in [`ITERATIONS.md`]
 4. **Every node needs a stable, unique, dot-namespaced `id`** (e.g. `settings.account.did.label`). Ids are how overlays target nodes — renaming an id is a breaking change.
 5. **Every platform difference is an overlay op.** Don't model a divergence by writing different code on each platform without an overlay; the validator's parity report is supposed to be the complete list of divergences.
 6. **Every `action:` and `valueBinding`/`openBinding`/`dataBinding` must be registered in `design/actions.json`,** and every platform that the merged tree depends on must list it in `design/platforms/<name>/bindings.json`. This is what catches "we added a button in the schema but forgot to wire it in code" and "we deleted a screen but left an orphan handler."
-7. **Run `make design-validate` after every change.** It must exit 0. The validator is also wired into `scripts/test-all.sh` (scope: `design`), the pre-commit hook (triggers on any `design/*` change), and CI (`.github/workflows/ci-design.yml`) — but don't wait for those, run it locally as you work.
+7. **Every enum value on a state-driven visual prop must have a token mapping.** E.g. each `TaskRow.dueState` value (other than `none`) must have a `color.due.<value>` token. Adding a state without the matching token fails validation.
+8. **No literal colors, dimensions, or px sizes inside `.dac-*` CSS in `design/tools/preview/generate.mjs`.** The previewer must consume tokens via `var(--…)`. Hex / `rgba()` / `\d+px` inside a `.dac-*` selector blocks the validator. Preview chrome (header / frame / inspector) is exempt — those styles are not part of the design system.
+9. **Run `make design-validate` after every change.** It must exit 0. The validator is also wired into `scripts/test-all.sh` (scope: `design`), the pre-commit hook (triggers on any `design/*` change), and CI (`.github/workflows/ci-design.yml`) — but don't wait for those, run it locally as you work.
 
 ### Workflow for UI changes
 

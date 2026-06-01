@@ -71,6 +71,10 @@ for (const f of listJSON(path.join(ROOT, 'fixtures'))) {
   if (d.name) fixtures[d.name] = d;
 }
 
+// icon registry (single source of truth for glyphs; macOS reads sfSymbol, web + preview read paths)
+const iconsFile = path.join(ROOT, 'icons.json');
+const iconsRegistry = fs.existsSync(iconsFile) ? readJSON(iconsFile) : { icons: {}, defaults: {}, viewBox: '0 0 24 24' };
+
 const platforms = {};
 const platformsDir = path.join(ROOT, 'platforms');
 if (fs.existsSync(platformsDir)) {
@@ -144,6 +148,7 @@ const bundle = {
   screens,
   texts,
   fixtures,
+  icons: iconsRegistry,
   platforms: Object.fromEntries(
     Object.entries(platforms).map(([n, p]) => [n, { manifest: p.manifest }])
   ),
@@ -193,64 +198,76 @@ const html = `<!doctype html>
     .inspector .src-override { color: #f88; }
     .inspector pre { white-space: pre-wrap; word-break: break-all; background: #000; padding: 6px; border-radius: 6px; max-height: 240px; overflow: auto; }
 
-    /* node renderer styles (inherit token-driven CSS variables set per stage) */
-    .dac-stage { background: var(--color\\.bg); color: var(--color\\.text); border-radius: 16px; padding: 16px; min-height: 440px; }
+    /* node renderer styles. Every visual value is a token reference set per-stage
+       in render(). Hex/px literals in this block are forbidden by the validator. */
+    .dac-stage { background: var(--color\\.bg); color: var(--color\\.text); border-radius: var(--radius\\.xl); padding: var(--spacing\\.8); min-height: 440px; font-family: var(--font\\.family\\.system); }
     .dac-node { position: relative; cursor: pointer; }
-    .dac-node:hover { outline: 1px dashed rgba(10,132,255,0.6); }
-    .dac-node[data-src="overlay"]  { outline: 1px solid rgba(255,160,80,0.45); }
-    .dac-node[data-src="override"] { outline: 1px solid rgba(255,80,80,0.45); }
+    .dac-node:hover { outline: 1px dashed var(--color\\.accent); }
+    .dac-node[data-src="overlay"]  { outline: 1px solid color-mix(in srgb, var(--color\\.due\\.tomorrow) 60%, transparent); }
+    .dac-node[data-src="override"] { outline: 1px solid color-mix(in srgb, var(--color\\.danger) 60%, transparent); }
     .dac-stack-vertical   { display: flex; flex-direction: column; }
     .dac-stack-horizontal { display: flex; flex-direction: row; align-items: center; }
-    .dac-section { background: var(--color\\.surface); border-radius: 12px; padding: 12px; }
-    .dac-section h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--color\\.text); }
+    .dac-section { background: var(--color\\.surface); border-radius: var(--radius\\.lg); padding: var(--spacing\\.6); }
+    .dac-section h4 { margin: 0 0 var(--spacing\\.4); font-size: var(--font\\.size\\.13); font-weight: var(--font\\.weight\\.semibold); color: var(--color\\.text); }
     .dac-text     { line-height: 1.4; }
-    .dac-text-title   { font-size: 22px; font-weight: 700; }
-    .dac-text-subtitle{ font-size: 12px; color: var(--color\\.text-muted); }
-    .dac-text-label   { font-size: 12px; color: var(--color\\.text-muted); font-weight: 500; margin-top: 4px; }
-    .dac-text-caption { font-size: 10px; color: var(--color\\.text-muted); text-align: center; }
-    .dac-text-muted   { color: var(--color\\.text-muted); font-size: 12px; }
-    .dac-text-warn    { color: var(--color\\.danger); font-size: 12px; }
-    .dac-text-body    { font-size: 14px; }
-    .dac-button { font: inherit; border: 0; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+    .dac-text-title   { font-size: var(--font\\.size\\.22); font-weight: var(--font\\.weight\\.bold); }
+    .dac-text-subtitle{ font-size: var(--font\\.size\\.12); color: var(--color\\.text-muted); }
+    .dac-text-label   { font-size: var(--font\\.size\\.12); color: var(--color\\.text-muted); font-weight: var(--font\\.weight\\.medium); margin-top: var(--spacing\\.2); }
+    .dac-text-caption { font-size: var(--font\\.size\\.10); color: var(--color\\.text-muted); text-align: center; }
+    .dac-text-muted   { color: var(--color\\.text-muted); font-size: var(--font\\.size\\.12); }
+    .dac-text-warn    { color: var(--color\\.danger); font-size: var(--font\\.size\\.12); }
+    .dac-text-body    { font-size: var(--font\\.size\\.13); }
+    .dac-button { font: inherit; border: 0; padding: var(--spacing\\.3) var(--spacing\\.6); border-radius: var(--radius\\.md); cursor: pointer; display: inline-flex; align-items: center; gap: var(--spacing\\.2); }
     .dac-button-primary    { background: var(--color\\.accent); color: var(--color\\.text-on-accent); }
     .dac-button-text       { background: transparent; color: var(--color\\.accent); }
     .dac-button-destructive{ background: transparent; color: var(--color\\.danger); }
-    .dac-button-icon       { background: transparent; color: var(--color\\.text-muted); padding: 4px 6px; }
-    .dac-textfield { display: block; width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; background: var(--color\\.surface-strong); color: var(--color\\.text); border: 1px solid var(--color\\.border); border-radius: 6px; }
-    .dac-toggle  { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
-    .dac-toggle small { color: var(--color\\.text-muted); font-size: 11px; display: block; margin-top: 2px; }
-    .dac-select  { font: inherit; padding: 4px 6px; border-radius: 6px; background: var(--color\\.surface-strong); color: var(--color\\.text); border: 1px solid var(--color\\.border); }
-    .dac-codeblock { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: var(--color\\.surface-strong); border-radius: 6px; padding: 6px 8px; word-break: break-all; }
-    .dac-divider { height: 1px; background: var(--color\\.border); margin: 6px 0; }
-    .dac-segmented { display: flex; background: var(--color\\.surface); padding: 2px; border-radius: 8px; }
-    .dac-segmented button { flex: 1; border: 0; padding: 5px 10px; font: inherit; border-radius: 6px; cursor: pointer; background: transparent; color: var(--color\\.text); }
+    .dac-button-icon       { background: transparent; color: var(--color\\.text-muted); padding: var(--spacing\\.2) var(--spacing\\.3); }
+    .dac-textfield { display: block; width: 100%; box-sizing: border-box; padding: var(--spacing\\.3) var(--spacing\\.4); font: inherit; background: var(--color\\.surface-strong); color: var(--color\\.text); border: 1px solid var(--color\\.border); border-radius: var(--radius\\.sm); }
+    .dac-toggle  { display: flex; align-items: center; gap: var(--spacing\\.4); padding: var(--spacing\\.2) 0; font-size: var(--font\\.size\\.13); }
+    .dac-toggle small { color: var(--color\\.text-muted); font-size: var(--font\\.size\\.10); display: block; margin-top: var(--spacing\\.1); }
+    .dac-select  { font: inherit; padding: var(--spacing\\.2) var(--spacing\\.3); border-radius: var(--radius\\.sm); background: var(--color\\.surface-strong); color: var(--color\\.text); border: 1px solid var(--color\\.border); }
+    .dac-codeblock { font-family: var(--font\\.family\\.mono); font-size: var(--font\\.size\\.10); background: var(--color\\.surface-strong); border-radius: var(--radius\\.sm); padding: var(--spacing\\.3) var(--spacing\\.4); word-break: break-all; }
+    .dac-divider { height: 1px; background: var(--color\\.border); margin: var(--spacing\\.3) 0; }
+    .dac-segmented { display: flex; background: var(--color\\.surface); padding: var(--spacing\\.1); border-radius: var(--radius\\.md); }
+    .dac-segmented button { flex: 1; border: 0; padding: var(--spacing\\.2) var(--spacing\\.5); font: inherit; border-radius: var(--radius\\.sm); cursor: pointer; background: transparent; color: var(--color\\.text); }
     .dac-segmented button.active { background: var(--color\\.surface-strong); }
-    .dac-disclosure summary { cursor: pointer; font-size: 13px; padding: 4px 0; color: var(--color\\.accent); }
+    .dac-disclosure summary { cursor: pointer; font-size: var(--font\\.size\\.13); padding: var(--spacing\\.2) 0; color: var(--color\\.accent); }
     .dac-icon { display: inline-flex; align-items: center; justify-content: center; width: 1.2em; height: 1.2em; color: var(--color\\.text-muted); }
-    .dac-image { display: inline-block; border: 1px dashed var(--color\\.border); padding: 8px; font-size: 10px; color: var(--color\\.text-muted); border-radius: 6px; }
-    .dac-sheet { border: 1px solid var(--color\\.border); border-radius: 12px; padding: 8px; background: var(--color\\.surface); }
+    .dac-icon svg { width: 100%; height: 100%; }
+    .dac-image { display: inline-block; border: 1px dashed var(--color\\.border); padding: var(--spacing\\.4); font-size: var(--font\\.size\\.10); color: var(--color\\.text-muted); border-radius: var(--radius\\.sm); }
+    .dac-sheet { border: 1px solid var(--color\\.border); border-radius: var(--radius\\.lg); padding: var(--spacing\\.4); background: var(--color\\.surface); }
     .dac-spacer { flex: 1; }
-    .dac-navbar { display: flex; align-items: flex-start; gap: 8px; }
+    .dac-navbar { display: flex; align-items: flex-start; gap: var(--spacing\\.4); }
     .dac-navbar .titles { flex: 1; }
-    .dac-debug-tag { background: var(--color\\.surface-strong); color: var(--color\\.text-muted); font-size: 9px; padding: 1px 4px; border-radius: 4px; margin-left: 4px; }
+    .dac-debug-tag { background: var(--color\\.surface-strong); color: var(--color\\.text-muted); font-size: var(--font\\.size\\.10); padding: 1px var(--spacing\\.2); border-radius: var(--radius\\.sm); margin-left: var(--spacing\\.2); }
 
-    .dac-task { background: var(--color\\.surface); border: 1px solid transparent; border-radius: 16px; padding: 10px 12px; margin-bottom: 8px; }
-    .dac-task.tint-overdue  { background: rgba(255, 69, 58,  0.16); border-color: rgba(255, 69, 58,  0.5); }
-    .dac-task.tint-today    { background: rgba(255, 159, 10, 0.16); border-color: rgba(255, 159, 10, 0.5); }
-    .dac-task.tint-tomorrow { background: rgba(255, 214, 10, 0.14); border-color: rgba(255, 214, 10, 0.5); }
-    .dac-task-main { display: flex; align-items: center; gap: 10px; }
-    .dac-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--color\\.text-muted); flex-shrink: 0; }
-    .dac-check-done { width: 20px; height: 20px; border-radius: 50%; background: transparent; color: var(--color\\.text-muted); display: inline-flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
-    .dac-task-title { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; word-break: break-word; }
-    .dac-icon-slot { color: var(--color\\.text-muted); font-size: 13px; opacity: 0.8; }
-    .dac-task-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding-left: 30px; font-size: 11px; color: var(--color\\.text-muted); }
-    .dac-meta-chip { display: inline-flex; align-items: center; gap: 4px; }
-    .dac-due-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; margin-left: auto; }
-    .dac-debug-id { padding-left: 30px; font-family: ui-monospace, Menlo, monospace; font-size: 9px; color: var(--color\\.text-muted); opacity: 0.55; margin-top: 4px; word-break: break-all; }
-    .dac-archive-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: 6px; padding-left: 30px; font-size: 12px; color: var(--color\\.text-muted); }
-    .dac-archive-due { display: inline-flex; align-items: center; gap: 6px; }
+    .dac-task { background: var(--color\\.surface); border: 1px solid transparent; border-radius: var(--radius\\.xl); padding: var(--spacing\\.5) var(--spacing\\.6); margin-bottom: var(--spacing\\.4); }
+    .dac-task.tint-overdue  { background: color-mix(in srgb, var(--color\\.due\\.overdue)  16%, transparent); border-color: color-mix(in srgb, var(--color\\.due\\.overdue)  50%, transparent); }
+    .dac-task.tint-today    { background: color-mix(in srgb, var(--color\\.due\\.today)    16%, transparent); border-color: color-mix(in srgb, var(--color\\.due\\.today)    50%, transparent); }
+    .dac-task.tint-tomorrow { background: color-mix(in srgb, var(--color\\.due\\.tomorrow) 14%, transparent); border-color: color-mix(in srgb, var(--color\\.due\\.tomorrow) 50%, transparent); }
+    .dac-task-main { display: flex; align-items: center; gap: var(--spacing\\.5); }
+    .dac-check { width: var(--spacing\\.10); height: var(--spacing\\.10); border-radius: 50%; border: 2px solid var(--color\\.text-muted); flex-shrink: 0; box-sizing: border-box; }
+    .dac-check-done { width: var(--spacing\\.10); height: var(--spacing\\.10); border-radius: 50%; color: var(--color\\.text-muted); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .dac-task-title { flex: 1; min-width: 0; font-weight: var(--font\\.weight\\.semibold); font-size: var(--font\\.size\\.15); word-break: break-word; }
+    .dac-icon-slot { color: var(--color\\.text-muted); font-size: var(--font\\.size\\.13); opacity: 0.8; display: inline-flex; align-items: center; }
+    .dac-icon-slot svg { width: 1em; height: 1em; }
+    .dac-icon-slot.due-overdue  { color: var(--color\\.due\\.overdue);  opacity: 1; }
+    .dac-icon-slot.due-today    { color: var(--color\\.due\\.today);    opacity: 1; }
+    .dac-icon-slot.due-tomorrow { color: var(--color\\.due\\.tomorrow); opacity: 1; }
+    .dac-icon-slot.due-future   { color: var(--color\\.due\\.future);   opacity: 1; }
+    .dac-task-meta { display: flex; align-items: center; gap: var(--spacing\\.4); margin-top: var(--spacing\\.3); padding-left: var(--spacing\\.12); font-size: var(--font\\.size\\.12); color: var(--color\\.text-muted); }
+    .dac-meta-chip { display: inline-flex; align-items: center; gap: var(--spacing\\.2); }
+    .dac-meta-chip svg { width: 1em; height: 1em; }
+    .dac-due-badge { font-size: var(--font\\.size\\.12); font-weight: var(--font\\.weight\\.semibold); padding: var(--spacing\\.1) var(--spacing\\.4); border-radius: var(--radius\\.pill); white-space: nowrap; margin-left: auto; color: var(--color\\.text-muted); background: var(--color\\.surface-strong); }
+    .dac-due-badge.due-overdue  { color: var(--color\\.due\\.overdue);  background: color-mix(in srgb, var(--color\\.due\\.overdue)  20%, transparent); }
+    .dac-due-badge.due-today    { color: var(--color\\.due\\.today);    background: color-mix(in srgb, var(--color\\.due\\.today)    20%, transparent); }
+    .dac-due-badge.due-tomorrow { color: var(--color\\.due\\.tomorrow); background: color-mix(in srgb, var(--color\\.due\\.tomorrow) 20%, transparent); }
+    .dac-due-badge.due-future   { color: var(--color\\.due\\.future);   background: color-mix(in srgb, var(--color\\.due\\.future)   20%, transparent); }
+    .dac-debug-id { padding-left: var(--spacing\\.12); font-family: var(--font\\.family\\.mono); font-size: var(--font\\.size\\.10); color: var(--color\\.text-muted); opacity: 0.55; margin-top: var(--spacing\\.2); word-break: break-all; }
+    .dac-archive-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: var(--spacing\\.3); padding-left: var(--spacing\\.12); font-size: var(--font\\.size\\.12); color: var(--color\\.text-muted); }
+    .dac-archive-due { display: inline-flex; align-items: center; gap: var(--spacing\\.3); }
     .dac-archive-due .dac-due-badge { margin-left: 0; }
-    .dac-empty { text-align: center; padding: 32px 16px; color: var(--color\\.text-muted); font-size: 13px; }
+    .dac-empty { text-align: center; padding: var(--spacing\\.12) var(--spacing\\.8); color: var(--color\\.text-muted); font-size: var(--font\\.size\\.13); }
   </style>
 </head>
 <body>
@@ -322,18 +339,50 @@ const html = `<!doctype html>
       return out;
     }
 
-    // Real apps render due badges as: solid-color text on a 20%-alpha tint of
-    // the same color. Match that with the resolved token color and a derived
-    // alpha background.
+    // Real apps render due badges as solid-color text on a 20%-alpha tint of the
+    // same color. Match that by referencing the token via CSS color-mix() — no
+    // resolved hex values appear in the renderer.
     function dueBadge(state, label) {
-      const color = currentTheme['color.due.' + state] || currentTheme['color.accent'] || '#0a84ff';
-      return el('span', { class: 'dac-due-badge', style: { color, background: hexAlpha(color, 0.2) } }, [label || state]);
+      const cls = 'dac-due-badge' + (state && state !== 'none' ? ' due-' + state : '');
+      return el('span', { class: cls }, [label || state]);
     }
-    function hexAlpha(hex, a) {
-      const m = /^#([0-9a-f]{6})$/i.exec(hex);
-      if (!m) return hex;
-      const r = parseInt(m[1].slice(0,2),16), g = parseInt(m[1].slice(2,4),16), b = parseInt(m[1].slice(4,6),16);
-      return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+
+    // Build an inline SVG element from the icon registry. macOS resolves the same
+    // entry to its sfSymbol; web resolves the same paths in its own component.
+    function iconSvg(name, sizeEm = 1) {
+      const def = (BUNDLE.icons.icons || {})[name];
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', BUNDLE.icons.viewBox || '0 0 24 24');
+      svg.setAttribute('width', sizeEm + 'em');
+      svg.setAttribute('height', sizeEm + 'em');
+      svg.setAttribute('aria-hidden', 'true');
+      const d = BUNDLE.icons.defaults || {};
+      if (d.fill)            svg.setAttribute('fill', d.fill);
+      if (d.stroke)          svg.setAttribute('stroke', d.stroke);
+      if (d.strokeWidth)     svg.setAttribute('stroke-width', String(d.strokeWidth));
+      if (d.strokeLinecap)   svg.setAttribute('stroke-linecap', d.strokeLinecap);
+      if (d.strokeLinejoin)  svg.setAttribute('stroke-linejoin', d.strokeLinejoin);
+      if (!def) {
+        const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        t.setAttribute('x', '4'); t.setAttribute('y', '18'); t.setAttribute('font-size', '14');
+        t.textContent = '?';
+        svg.appendChild(t);
+        return svg;
+      }
+      for (const p of def.paths || []) {
+        const pe = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        pe.setAttribute('d', p.d);
+        if (p.fill)        pe.setAttribute('fill', p.fill);
+        if (p.stroke)      pe.setAttribute('stroke', p.stroke);
+        if (p.strokeWidth) pe.setAttribute('stroke-width', String(p.strokeWidth));
+        svg.appendChild(pe);
+      }
+      return svg;
+    }
+    function iconSpan(name, extraClass) {
+      const s = el('span', { class: 'dac-icon-slot' + (extraClass ? ' ' + extraClass : ''), title: name });
+      s.appendChild(iconSvg(name));
+      return s;
     }
 
     function el(tag, attrs = {}, kids = []) {
@@ -415,7 +464,9 @@ const html = `<!doctype html>
           ]));
         }
         case 'Icon': {
-          return wrap(el('span', { class: 'dac-icon', title: p.name }, ['◇']));
+          const wrapper = el('span', { class: 'dac-icon', title: p.name || '' });
+          wrapper.appendChild(iconSvg(p.name));
+          return wrap(wrapper);
         }
         case 'Divider': {
           return wrap(el('div', { class: 'dac-divider' }));
@@ -480,17 +531,25 @@ const html = `<!doctype html>
         }
         case 'TaskRow': {
           const rp = rprops(node);
+          // Row tint applies only when due is concretely soon. Future falls
+          // through to the neutral surface — matches real macOS rowFill.
           const tint = (rp.dueState && rp.dueState !== 'none' && rp.dueState !== 'future') ? ' tint-' + rp.dueState : '';
+          // Due-date control icon takes on the dueState color (matches DueDateButton
+          // on macOS: foregroundStyle(status.color)). 'none' falls through to muted.
+          const dueIcon = iconSpan('calendar',
+            (rp.dueState && rp.dueState !== 'none') ? 'due-' + rp.dueState : ''
+          );
           const mainKids = [
             el('div', { class: 'dac-check', title: 'complete' }),
             el('div', { class: 'dac-task-title' }, [rp.title || '']),
-            el('span', { class: 'dac-icon-slot', title: 'edit' }, ['✎']),
-            el('span', { class: 'dac-icon-slot', title: 'due date' }, ['📅']),
-            el('span', { class: 'dac-icon-slot', title: 'drag' }, ['☰']),
+            iconSpan('pencil'),
+            dueIcon,
+            iconSpan('drag'),
           ];
-          const meta = [
-            el('span', { class: 'dac-meta-chip' }, ['📅 ' + (rp.createdAt || '')])
-          ];
+          const chip = el('span', { class: 'dac-meta-chip' });
+          chip.appendChild(iconSvg('calendar'));
+          chip.appendChild(document.createTextNode(' ' + (rp.createdAt || '')));
+          const meta = [chip];
           if (rp.dueState && rp.dueState !== 'none') meta.push(dueBadge(rp.dueState, rp.dueLabel));
           const kids = [
             el('div', { class: 'dac-task-main' }, mainKids),
@@ -501,10 +560,12 @@ const html = `<!doctype html>
         }
         case 'ArchiveRow': {
           const rp = rprops(node);
+          const done = el('span', { class: 'dac-check-done', title: 'archived' });
+          done.appendChild(iconSvg('check-circle-fill'));
           const mainKids = [
-            el('span', { class: 'dac-check-done', title: 'archived' }, ['◉']),
+            done,
             el('div', { class: 'dac-task-title' }, [rp.title || '']),
-            el('span', { class: 'dac-icon-slot', title: 'delete' }, ['🗑']),
+            iconSpan('trash'),
           ];
           const metaKids = [
             el('div', {}, ['Added: ' + (rp.createdAt || '')]),

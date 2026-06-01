@@ -3,7 +3,7 @@
   "name": "Icon",
   "description": "Logical icon reference; each platform resolves it to its native glyph set (SF Symbols on macOS, inline SVG on web).",
   "props": {
-    "name":  { "type": "enum", "values": ["gear", "close", "plus", "check", "trash", "sparkles", "qrcode", "calendar", "warning", "bug", "shield"], "required": true },
+    "name":  { "type": "enum", "values": ["gear", "close", "plus", "check", "trash", "sparkles", "qrcode", "calendar", "warning", "bug", "shield", "pencil", "drag", "circle", "check-circle-fill"], "required": true },
     "size":  { "type": "token", "slot": "fontSize", "default": "{font.size.15}" },
     "color": { "type": "token", "slot": "color", "default": "{color.text}" }
   },

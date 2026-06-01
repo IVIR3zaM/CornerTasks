@@ -161,6 +161,45 @@ for (const f of listJSON(path.join(ROOT, 'components'))) {
   report.components.push(data.name || path.basename(f));
 }
 
+// ---------- icon registry (single source of truth for glyphs) ----------
+const iconsPath = path.join(ROOT, 'icons.json');
+let iconRegistry = { icons: {} };
+if (fs.existsSync(iconsPath)) {
+  iconRegistry = readJSON(iconsPath);
+  const iconNames = new Set(Object.keys(iconRegistry.icons || {}));
+  for (const [name, def] of Object.entries(iconRegistry.icons || {})) {
+    if (!def.sfSymbol) errors.push(`icons.json: '${name}' missing sfSymbol id`);
+    if (!Array.isArray(def.paths) || def.paths.length === 0)
+      errors.push(`icons.json: '${name}' missing svg paths`);
+  }
+  // Icon component's enum must equal the registry keys — single source of truth.
+  const iconEnum = new Set(components.Icon?.props?.name?.values || []);
+  for (const n of iconEnum) if (!iconNames.has(n))
+    errors.push(`Icon.json: enum lists '${n}' but icons.json has no such entry`);
+  for (const n of iconNames) if (!iconEnum.has(n))
+    errors.push(`icons.json: '${n}' is not declared in Icon.json's name enum`);
+} else {
+  errors.push('icons.json: missing icon registry (required SSOT for glyphs)');
+}
+
+// Every enum value on a "visual-state" prop must have a matching token mapping.
+// Today the rule is: TaskRow.dueState / ArchiveRow.dueState → color.due.<state>.
+// Add an entry to this list when a new state-driven visual prop is introduced.
+const stateRules = [
+  { components: ['TaskRow', 'ArchiveRow'], prop: 'dueState', tokenPrefix: 'color.due.', exempt: ['none'] },
+];
+for (const r of stateRules) {
+  const seen = new Set();
+  for (const cn of r.components) {
+    for (const v of components[cn]?.props?.[r.prop]?.values || []) seen.add(v);
+  }
+  for (const s of seen) {
+    if (r.exempt.includes(s)) continue;
+    if (!allTokenNames.has(r.tokenPrefix + s))
+      errors.push(`tokens: state '${s}' (${r.prop}) has no '${r.tokenPrefix}${s}' token mapping`);
+  }
+}
+
 // ---------- text ----------
 const textFiles = listJSON(path.join(ROOT, 'text'));
 const textKeys = new Set();
@@ -385,6 +424,31 @@ const allUsedActions  = new Set(Object.values(platformUsage).flatMap((u) => [...
 const allUsedBindings = new Set(Object.values(platformUsage).flatMap((u) => [...u.bindings]));
 report.unusedActions  = [...knownActions].filter((a) => !allUsedActions.has(a));
 report.unusedBindings = [...knownBindings].filter((b) => !allUsedBindings.has(b));
+
+// ---------- renderer hygiene: no literal colors/dims inside the design CSS block of generate.mjs ----------
+// The previewer is part of the design SSOT chain — if it carries hex/rgba/px
+// literals for design tokens, the preview will drift the moment a token changes.
+// Allow literals only inside the preview-chrome region (header/frame/inspector
+// styles, never read by .dac-* rules) which is bracketed by the markers below.
+const genPath = path.join(ROOT, 'tools', 'preview', 'generate.mjs');
+if (fs.existsSync(genPath)) {
+  const src = fs.readFileSync(genPath, 'utf8');
+  const lines = src.split('\n');
+  const dacRe = /\.dac-[a-z][a-z0-9-]*\s*[{,.]/;
+  // Allow:
+  //  - 1px/2px (hairline borders — atomic visual constants, not design tokens)
+  //  - min-height/max-height/min-width/max-width literals (preview canvas sizing)
+  // Everything else (hex, rgba, ≥3px values for spacing/sizing/typography) must reference a token.
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    if (!dacRe.test(ln)) continue;
+    const scrubbed = ln
+      .replace(/\b[12]px\b/g, '')
+      .replace(/(min|max)-(height|width):\s*\d+px/g, '');
+    const m = scrubbed.match(/(#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|(?<![\w.])\d+px\b)/);
+    if (m) errors.push(`generate.mjs:${i + 1}: design CSS rule uses literal '${m[0]}' — reference a token via var(--…) instead`);
+  }
+}
 
 // ---------- output ----------
 console.log('design-as-code validator');
