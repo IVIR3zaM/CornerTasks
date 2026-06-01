@@ -1,4 +1,6 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { DayPicker } from 'react-day-picker';
+import 'react-day-picker/style.css';
 import { DueColor, DueStatus } from '../models/DueStatus';
 import { CalendarIcon, CalendarPlusIcon } from './icons';
 
@@ -8,59 +10,82 @@ interface Props {
   onSet: (date: Date | null) => void;
 }
 
-const toInputValue = (d: Date): string => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+const startOfToday = (): Date => {
+  const t = new Date();
+  return new Date(t.getFullYear(), t.getMonth(), t.getDate(), 0, 0, 0, 0);
 };
 
-const fromInputValue = (s: string): Date | null => {
-  if (!s) return null;
-  const [y, m, d] = s.split('-').map(Number);
-  if (!y || !m || !d) return null;
-  return new Date(y, m - 1, d, 0, 0, 0, 0);
-};
+const startOfDay = (d: Date): Date =>
+  new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 
 export function DueDatePicker({ due, status, onSet }: Props) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement | null>(null);
 
   const color = due ? DueColor[status] : 'var(--muted)';
 
-  const openPicker = (): void => {
-    const el = inputRef.current;
-    if (!el) return;
-    if (typeof el.showPicker === 'function') {
-      el.showPicker();
-    } else {
-      el.focus();
-      el.click();
-    }
+  useEffect(() => {
+    if (!open) return;
+    const onDocPointer = (e: PointerEvent): void => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDocPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDocPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const pick = (d: Date | null): void => {
+    onSet(d);
+    setOpen(false);
   };
 
   return (
-    <div className="due-picker">
+    <span className="due-picker" ref={rootRef}>
       <button
         type="button"
         className="icon-btn calendar-btn"
         style={{ color }}
-        onClick={openPicker}
+        onClick={() => setOpen((v) => !v)}
         aria-label={due ? 'Change due date' : 'Set due date'}
+        aria-expanded={open}
       >
         {due ? <CalendarIcon /> : <CalendarPlusIcon />}
       </button>
-      <input
-        ref={inputRef}
-        type="date"
-        className="due-hidden-input"
-        value={due ? toInputValue(due) : ''}
-        onChange={(e) => {
-          const d = fromInputValue(e.target.value);
-          onSet(d);
-        }}
-        tabIndex={-1}
-        aria-hidden="true"
-      />
-    </div>
+      {open && (
+        <div className="due-popover" role="dialog">
+          <DayPicker
+            mode="single"
+            selected={due ?? undefined}
+            onSelect={(d) => d && pick(startOfDay(d))}
+            showOutsideDays
+            weekStartsOn={1}
+          />
+          <div className="due-popover-actions">
+            <button
+              type="button"
+              className="btn-text danger"
+              onClick={() => pick(null)}
+              disabled={!due}
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              className="btn-text"
+              onClick={() => pick(startOfToday())}
+            >
+              Today
+            </button>
+          </div>
+        </div>
+      )}
+    </span>
   );
 }

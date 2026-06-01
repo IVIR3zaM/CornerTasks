@@ -24,6 +24,7 @@ This project is intentionally small. Resist over-engineering — but v0.2.0 grow
 - Split code by responsibility (storage, sync, crypto, UI). Don't introduce design patterns unless they clearly pay for themselves.
 - Add unit tests for non-UI logic: crypto, sync queue, conflict resolution, encoding/decoding, mnemonic flow.
 - Prefer the platform's standard library and a minimal set of dependencies. For crypto in Swift use Apple's `CryptoKit`; in TypeScript prefer the standard `crypto` module / `@aws-sdk/*`.
+- For the **web** app, the native browser solution is the default — but when a native primitive proves unreliable across the browsers we target (Chrome, Safari desktop, Safari iOS, Firefox), reaching for a small, focused external library is acceptable. Document the reason in the PR. Example: `<input type="date">` was replaced with `react-day-picker` because iOS Safari's native sheet has a broken Reset button and no programmatic-clear path, and no amount of overlay/`showPicker()` shimming worked reliably across all four browsers.
 - `UserDefaults` (macOS) and `localStorage`/IndexedDB (web) are fine for preferences. Don't introduce a settings framework.
 - No reactive frameworks beyond what each platform provides natively (SwiftUI, React or vanilla web — TBD in iteration 6).
 

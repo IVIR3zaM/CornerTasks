@@ -268,22 +268,63 @@ body {
 .archive-due .due-badge { margin-left: 0; }
 
 /* ---------- Date picker ---------- */
-.due-picker { position: relative; display: inline-flex; align-items: center; gap: 2px; }
-
-.due-hidden-input {
+/* react-day-picker rendered inside our own popover. Matches the macOS
+   popover layout: calendar grid, then a row with Clear (left) and
+   Today (right). Any action closes the popover. */
+.due-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.due-popover {
   position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  opacity: 0;
-  pointer-events: none;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
   color-scheme: light dark;
 }
+.due-popover-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 2px;
+}
+.due-popover-actions .btn-text:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
+/* react-day-picker theming hooks — align with our palette. */
+.due-popover .rdp-root {
+  --rdp-accent-color: var(--accent);
+  --rdp-accent-background-color: var(--accent);
+  --rdp-day-height: 34px;
+  --rdp-day-width: 34px;
+  --rdp-day_button-height: 30px;
+  --rdp-day_button-width: 30px;
+  font: inherit;
+  color: var(--text);
+}
+.due-popover .rdp-today .rdp-day_button {
+  color: var(--accent);
+  font-weight: 600;
+}
+.due-popover .rdp-selected .rdp-day_button {
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+}
+.due-popover .rdp-outside { color: var(--muted); }
+.due-popover .rdp-chevron { fill: var(--text); }
 
 .btn-text {
   background: transparent;
