@@ -4,6 +4,21 @@ Mobile-first web app with feature parity with the v0.1.0 macOS app: add, edit (d
 
 **Stack:** Vite + React + TypeScript. IndexedDB for storage. `@dnd-kit/core` for reorder. No reactive framework beyond React.
 
+## Design schema
+
+Screen structure lives in [`design/`](../../design/README.md). The web-specific
+divergences are in [`design/platforms/web/overlays/`](../../design/platforms/web/overlays/):
+
+- **`settings.json` overlay** — adds a QR-scan disclosure to the Account
+  section (web has camera access, so the user can import an existing
+  account by pointing the camera at another device's QR).
+
+To consume the schema from React, read the merged tree for `web` (base screen
++ overlay; the validator's `applyOverlay` is the reference implementation),
+then map each component name to a React component — `Stack` → flex container,
+`Section` → `.section`, `Toggle` → checkbox with `role="switch"`, `Icon` →
+inline SVG keyed off the logical `name`, etc.
+
 ## Standalone-first
 
 This is a **local-only** build by default. Cloud sync is **off**, there is **no** `backendURL` baked into the bundle, and storage lives entirely in the browser's IndexedDB. With sync off, the app makes no network calls. Cloud-sync UI lands in iterations 9 (macOS) and 10 (web); the encrypted sync engine in iteration 11 (macOS) and 12 (web).

@@ -1,0 +1,16 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Text",
+  "description": "Text node. Must reference a string from the text map.",
+  "props": {
+    "textKey":  { "type": "textKey", "required": true },
+    "variant":  { "type": "enum", "values": ["title", "subtitle", "body", "caption", "label", "code", "warn", "muted"], "default": "body" },
+    "color":    { "type": "token", "slot": "color", "default": "{color.text}" },
+    "size":     { "type": "token", "slot": "fontSize", "required": false },
+    "weight":   { "type": "token", "slot": "fontWeight", "required": false },
+    "align":    { "type": "enum", "values": ["start", "center", "end"], "default": "start" },
+    "selectable": { "type": "boolean", "default": false }
+  },
+  "children": "none",
+  "a11y": { "role": "text" }
+}

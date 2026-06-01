@@ -1,0 +1,13 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "CodeBlock",
+  "description": "Monospaced read-only block for DIDs, mnemonics, device ids.",
+  "props": {
+    "textKey":   { "type": "textKey", "required": false },
+    "valueBinding": { "type": "string", "required": false, "description": "If set, host provides the live value (e.g. account.did). Otherwise textKey is used." },
+    "wrap":      { "type": "boolean", "default": true },
+    "selectable": { "type": "boolean", "default": true }
+  },
+  "children": "none",
+  "a11y": { "role": "text" }
+}

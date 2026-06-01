@@ -1,0 +1,24 @@
+{
+  "$schema": "../schema/fixtures.schema.json",
+  "name": "empty",
+  "description": "Empty-state preview — lists are empty so the emptyTextKey strings render.",
+  "data": {
+    "tasks.active":   [],
+    "tasks.archived": [],
+    "account.did":      "did:key:…",
+    "account.mnemonic": "(hidden — fixture is empty-state)",
+    "device.id":        "device-0000-0000-0000-0000",
+    "prefs.backendURL": "",
+    "prefs.syncIntervalAmount": 1,
+    "prefs.syncIntervalUnit":   "minutes",
+    "prefs.showInDock":         true,
+    "prefs.logLevel":           "info",
+    "ui.draftTitle":            "",
+    "ui.activeTab":             "tasks",
+    "ui.showMnemonic":          false,
+    "ui.showQR":                false,
+    "ui.showQRScan":            false,
+    "ui.showEnableSheet":       false,
+    "ui.enableUrl":             ""
+  }
+}

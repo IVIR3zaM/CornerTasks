@@ -1,0 +1,20 @@
+{
+  "$schema": "../../../schema/overlay.schema.json",
+  "screen": "settings",
+  "reason": "Web has camera access, so adds a QR-scan action inside the Account section for importing an existing account from another device.",
+  "ops": [
+    {
+      "op": "insert",
+      "target": { "parent": "settings.account", "after": "settings.account.qr" },
+      "node": {
+        "id": "settings.account.qrScan",
+        "component": "Disclosure",
+        "props": { "summaryKey": "settings.qr.scan.title", "openBinding": "ui.showQRScan" },
+        "children": [
+          { "id": "settings.account.qrScan.help",   "component": "Text",   "props": { "textKey": "settings.qr.scan.help", "variant": "muted" } },
+          { "id": "settings.account.qrScan.button", "component": "Button", "props": { "labelKey": "settings.qr.scan.action", "variant": "primary", "icon": "qrcode", "action": "account.scanQR" } }
+        ]
+      }
+    }
+  ]
+}

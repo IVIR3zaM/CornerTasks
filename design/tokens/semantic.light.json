@@ -1,0 +1,21 @@
+{
+  "$schema": "../schema/tokens.schema.json",
+  "theme": "light",
+  "color": {
+    "bg":             { "$value": "{color.neutral.50}",      "$type": "color" },
+    "surface":        { "$value": "{color.black-alpha.04}",  "$type": "color" },
+    "surface-strong": { "$value": "{color.black-alpha.06}",  "$type": "color" },
+    "border":         { "$value": "{color.black-alpha.08}",  "$type": "color" },
+    "text":           { "$value": "{color.neutral.900}",     "$type": "color" },
+    "text-muted":     { "$value": "{color.neutral.500}",     "$type": "color" },
+    "text-on-accent": { "$value": "{color.neutral.0}",       "$type": "color" },
+    "accent":         { "$value": "{color.blue.500}",        "$type": "color" },
+    "danger":         { "$value": "{color.red.500}",         "$type": "color" },
+    "due": {
+      "overdue":  { "$value": "{color.red.500}",    "$type": "color" },
+      "today":    { "$value": "{color.orange.500}", "$type": "color" },
+      "tomorrow": { "$value": "{color.yellow.500}", "$type": "color" },
+      "future":   { "$value": "{color.blue.500}",   "$type": "color" }
+    }
+  }
+}

@@ -27,6 +27,7 @@ while IFS= read -r f; do
     backend/aws/*)              scopes+=("backend") ;;
     apps/web/*)                 scopes+=("web") ;;
     apps/macos/*)               scopes+=("macos") ;;
+    design/*)                   scopes+=("design") ;;
     .github/workflows/*\
       |scripts/*\
       |.githooks/*\
@@ -35,7 +36,7 @@ while IFS= read -r f; do
 done <<< "$changed"
 
 if [ "$need_all" = "1" ] || [ "${#scopes[@]}" -eq 0 ]; then
-  SCOPES="backend,web,macos"
+  SCOPES="design,backend,web,macos"
 else
   # de-dup
   SCOPES="$(printf '%s\n' "${scopes[@]}" | sort -u | paste -sd, -)"

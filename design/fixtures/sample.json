@@ -1,0 +1,36 @@
+{
+  "$schema": "../schema/fixtures.schema.json",
+  "name": "sample",
+  "description": "Realistic populated data exercising every visual state both apps render: every dueState value, tasks with and without due dates, archive entries with and without a recorded due date.",
+  "data": {
+    "tasks.active": [
+      { "title": "Pay electricity bill",                "createdAt": "Aug 28, 2026", "dueState": "overdue",  "dueLabel": "Overdue · Aug 28, 2026",  "taskId": "8f1c2e90-1d2a-4a3b-9c10-7e3d1b8d22a1" },
+      { "title": "Reply to landlord email",             "createdAt": "Sep 09, 2026", "dueState": "today",    "dueLabel": "Today · Sep 11, 2026",    "taskId": "ab33fe51-66c2-4b7d-a18a-5fcb990ab233" },
+      { "title": "Pick up dry cleaning",                "createdAt": "Sep 09, 2026", "dueState": "tomorrow", "dueLabel": "Tomorrow · Sep 12, 2026", "taskId": "0d61b4e3-1f0c-4aaa-90ba-3b7fc110ee18" },
+      { "title": "Book flights for the October conference and the post-conference workshop", "createdAt": "Sep 02, 2026", "dueState": "future", "dueLabel": "Due · Sep 21, 2026", "taskId": "4521f7d9-7d44-49c2-9bb6-91e2c0c61d04" },
+      { "title": "Write blog post draft",               "createdAt": "Sep 10, 2026", "dueState": "none",                                              "taskId": "ce0a8b6a-2c91-4dbe-87df-220eb7a0c5fa" },
+      { "title": "Buy birthday present",                "createdAt": "Sep 08, 2026", "dueState": "future",   "dueLabel": "Due · Sep 18, 2026",      "taskId": "73a190ad-d72c-4f6a-b3a9-1c4e1aa97bda" }
+    ],
+    "tasks.archived": [
+      { "title": "Renew domain registration",           "createdAt": "Aug 12, 2026, 9:14 AM",  "completedAt": "Aug 30, 2026, 4:02 PM",  "dueLabel": "Due · Aug 31, 2026",  "dueState": "future",  "taskId": "2a7af0e6-9b4f-4c11-8b32-de9610c8ffa5" },
+      { "title": "File quarterly tax estimate",         "createdAt": "Jul 22, 2026, 11:48 AM", "completedAt": "Sep 01, 2026, 8:30 AM",  "dueLabel": "Today · Sep 01, 2026","dueState": "today",   "taskId": "f0e3c4b1-77ad-4cab-9c2e-08a32f1bd917" },
+      { "title": "Schedule dentist appointment",        "createdAt": "Aug 05, 2026, 7:02 PM",  "completedAt": "Aug 28, 2026, 10:15 AM",                                  "dueState": "none",    "taskId": "10b88e2d-441c-4dd2-a1f4-6f1234abc908" },
+      { "title": "Cancel unused subscription",          "createdAt": "Jul 30, 2026, 3:21 PM",  "completedAt": "Aug 02, 2026, 6:44 PM",                                   "dueState": "none",    "taskId": "5d6fc4c0-21ff-43c1-bcdc-aaa1bb2cc3dd" }
+    ],
+    "account.did":      "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSdoYY9ETW1JrPgULiAr",
+    "account.mnemonic": "afford coach lounge erase glance dial pulse magnet erode laundry pony hello",
+    "device.id":        "device-9c4f-21ab-3d77-fe10",
+    "prefs.backendURL": "https://sync.example.com/v1",
+    "prefs.syncIntervalAmount": 5,
+    "prefs.syncIntervalUnit":   "minutes",
+    "prefs.showInDock":         true,
+    "prefs.logLevel":           "info",
+    "ui.draftTitle":            "",
+    "ui.activeTab":             "tasks",
+    "ui.showMnemonic":          false,
+    "ui.showQR":                false,
+    "ui.showQRScan":            false,
+    "ui.showEnableSheet":       false,
+    "ui.enableUrl":             ""
+  }
+}

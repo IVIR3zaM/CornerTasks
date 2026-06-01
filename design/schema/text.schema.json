@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "text.schema.json",
+  "title": "TextMap",
+  "type": "object",
+  "required": ["locale", "strings"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "locale":  { "type": "string" },
+    "strings": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

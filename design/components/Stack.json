@@ -1,0 +1,15 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Stack",
+  "description": "Linear layout container along a single axis. Used for VStack/HStack patterns on all platforms.",
+  "props": {
+    "axis":      { "type": "enum", "values": ["vertical", "horizontal"], "default": "vertical" },
+    "spacing":   { "type": "token", "slot": "spacing", "default": "{spacing.4}" },
+    "alignment": { "type": "enum", "values": ["start", "center", "end", "stretch", "baseline"], "default": "stretch" },
+    "justify":   { "type": "enum", "values": ["start", "center", "end", "between", "around"], "default": "start" },
+    "padding":   { "type": "token", "slot": "spacing", "default": "{spacing.0}" },
+    "wrap":      { "type": "boolean", "default": false }
+  },
+  "children": "many",
+  "a11y": { "role": "group" }
+}

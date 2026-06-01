@@ -1,0 +1,46 @@
+{
+  "$schema": "./schema/actions.schema.json",
+  "description": "Single registry of every action id and value binding that screens may reference. The validator enforces (a) screens only reference entries listed here, (b) each platform's bindings.json implements every action/binding its merged tree uses. To add a new action or binding, add it here first.",
+
+  "actions": {
+    "settings.toggle":    { "description": "Open or close the Settings panel." },
+    "tasks.add":          { "description": "Append a new task using ui.draftTitle." },
+
+    "cloud.enable":       { "description": "Show the Enable-Cloud-Sync sheet." },
+    "cloud.confirmEnable":{ "description": "From the sheet: persist URL, flip cloudSyncEnabled on, fire CLOUD_SYNC_CHANGED." },
+    "cloud.disable":      { "description": "Turn cloud sync off; stop the engine." },
+    "cloud.saveUrl":      { "description": "Persist the current backendURL value to Prefs." },
+    "cloud.ping":         { "description": "Ping the configured backend and update ping state." },
+
+    "account.forget":     { "description": "Wipe the mnemonic from local storage; turn cloud sync off." },
+    "account.scanQR":     { "description": "(web only) Open the camera and scan a QR to import an account." },
+
+    "debug.copyDiagnostics": { "description": "(macOS debug) Copy diagnostic info to the clipboard." },
+    "debug.resetState":   { "description": "(macOS debug) Reset all local app state (DB, prefs, keychain)." },
+    "debug.forceCrash":   { "description": "(macOS debug) Deliberately crash, for testing crash reporting." }
+  },
+
+  "bindings": {
+    "prefs.backendURL":          { "type": "string",  "description": "Backend URL the sync engine talks to." },
+    "prefs.syncIntervalAmount":  { "type": "number",  "description": "Numeric part of the sync interval." },
+    "prefs.syncIntervalUnit":    { "type": "enum",    "values": ["seconds", "minutes", "hours"], "description": "Unit of the sync interval." },
+    "prefs.showInDock":          { "type": "boolean", "description": "(macOS only) Show the app icon in Dock." },
+    "prefs.logLevel":            { "type": "enum",    "values": ["info", "debug", "trace"], "description": "(macOS debug only) Verbosity of in-process logging." },
+
+    "ui.draftTitle":             { "type": "string",  "description": "In-progress text in the Add-task field." },
+    "ui.activeTab":              { "type": "enum",    "values": ["tasks", "archive"], "description": "Currently selected top-level tab." },
+    "ui.showMnemonic":           { "type": "boolean", "description": "Disclosure state of the mnemonic block." },
+    "ui.showQR":                 { "type": "boolean", "description": "Disclosure state of the QR-display block." },
+    "ui.showQRScan":             { "type": "boolean", "description": "(web only) Disclosure state of the QR-scan block." },
+    "ui.showEnableSheet":        { "type": "boolean", "description": "Whether the Enable-Cloud-Sync sheet is open." },
+    "ui.enableUrl":              { "type": "string",  "description": "URL field inside the Enable-Cloud-Sync sheet." },
+
+    "account.did":               { "type": "string",  "readonly": true, "description": "did:key string for this account." },
+    "account.mnemonic":          { "type": "string",  "readonly": true, "description": "The 12-word BIP-39 mnemonic." },
+    "account.qrPng":             { "type": "image",   "readonly": true, "description": "PNG bytes of the QR encoding the mnemonic." },
+    "device.id":                 { "type": "string",  "readonly": true, "description": "Per-device UUID used by the sync engine." },
+
+    "tasks.active":              { "type": "list",    "readonly": true, "of": "TaskRow",    "description": "Live list of non-archived tasks." },
+    "tasks.archived":            { "type": "list",    "readonly": true, "of": "ArchiveRow", "description": "Live list of archived tasks." }
+  }
+}

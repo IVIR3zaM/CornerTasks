@@ -1,0 +1,15 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "ArchiveRow",
+  "description": "One archived row. Filled checkmark-circle on the left, bold title (NOT struck through), trash icon on the right. Meta block underneath is vertical: 'Added: <ts>', 'Done: <ts>', and (if dueDate existed) 'Due:' + a colored due badge. A faint monospace debug task id sits below.",
+  "props": {
+    "title":       { "type": "string", "required": true },
+    "createdAt":   { "type": "string", "required": true, "description": "Human-formatted with time, e.g. 'Aug 12, 2026, 9:14 AM'." },
+    "completedAt": { "type": "string", "required": true },
+    "dueLabel":    { "type": "string", "required": false, "description": "Full label shown inside the due pill, e.g. 'Due · Sep 01, 2026'." },
+    "dueState":    { "type": "enum",   "values": ["none", "overdue", "today", "tomorrow", "future"], "default": "none" },
+    "taskId":      { "type": "string", "required": false }
+  },
+  "children": "none",
+  "a11y": { "role": "listitem" }
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "actions.schema.json",
+  "title": "ActionsAndBindingsRegistry",
+  "type": "object",
+  "required": ["actions", "bindings"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema":     { "type": "string" },
+    "description": { "type": "string" },
+    "actions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "type":        { "enum": ["string", "number", "boolean", "enum", "image", "list"] },
+          "values":      { "type": "array", "items": { "type": "string" } },
+          "of":          { "type": "string" },
+          "readonly":    { "type": "boolean" },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  }
+}

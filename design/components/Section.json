@@ -1,0 +1,13 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Section",
+  "description": "Grouped block with optional title. Renders as a card-like surface on web and a SwiftUI Section on macOS.",
+  "props": {
+    "titleKey":   { "type": "textKey", "required": false },
+    "background": { "type": "token", "slot": "color", "default": "{color.surface}" },
+    "padding":    { "type": "token", "slot": "spacing", "default": "{spacing.6}" },
+    "radius":     { "type": "token", "slot": "radius",  "default": "{radius.xl}" }
+  },
+  "children": "many",
+  "a11y": { "role": "region" }
+}

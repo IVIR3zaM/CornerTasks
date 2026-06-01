@@ -1,0 +1,17 @@
+{
+  "$schema": "../../schema/platform.schema.json",
+  "name": "macos",
+  "displayName": "macOS",
+  "framework": "SwiftUI",
+  "language": "Swift",
+  "capabilities": {
+    "camera": false,
+    "qrScanner": false,
+    "dock": true,
+    "menuBar": true,
+    "alwaysOnTop": true
+  },
+  "iconSet": "SFSymbols",
+  "screensRoot": "../../screens",
+  "overlaysRoot": "./overlays"
+}

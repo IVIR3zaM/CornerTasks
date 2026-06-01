@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "screen.schema.json",
+  "title": "Screen",
+  "type": "object",
+  "required": ["id", "root"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema":  { "type": "string" },
+    "id":       { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "titleKey": { "type": "string" },
+    "root":     { "$ref": "#/definitions/node" }
+  },
+  "definitions": {
+    "node": {
+      "type": "object",
+      "required": ["id", "component", "props"],
+      "additionalProperties": false,
+      "properties": {
+        "id":        { "type": "string", "pattern": "^[a-z][a-z0-9.-]*$" },
+        "component": { "type": "string" },
+        "props":     { "type": "object" },
+        "children":  {
+          "type": "array",
+          "items": { "$ref": "#/definitions/node" }
+        }
+      }
+    }
+  }
+}

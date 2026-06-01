@@ -4,6 +4,12 @@
 
 A tiny task widget. CornerTasks ships as a macOS app (a vertical strip pinned to the right edge of your screen) and a mobile-first web app. Cloud sync between devices is opt-in and end-to-end encrypted; if you don't want sync you don't get any network calls.
 
+UI structure is declared as data under [`design/`](design/README.md) — JSON tokens, components, screens, and per-platform overlays. Run `make design-validate` for the parity report and `make design-preview` for a side-by-side HTML preview.
+
+The latest `main` is published to GitHub Pages: **<https://ivir3zam.github.io/CornerTasks/>** — open it directly, no download.
+
+For pull-request previews (which Pages doesn't serve) the HTML is regenerated on every CI run and uploaded as a build artifact: open the latest run on the [**CI (design/) workflow**](../../actions/workflows/ci-design.yml), scroll to **Artifacts** at the bottom of the run summary, and download `design-preview` — unzip and open `index.html` in any browser.
+
 ## Features
 
 **Both apps**

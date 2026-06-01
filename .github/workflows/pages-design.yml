@@ -1,0 +1,54 @@
+name: Pages (design preview)
+
+# Publishes design/preview/index.html to GitHub Pages on every push to main.
+# The PR flow stays in ci-design.yml (validator + downloadable artifact);
+# Pages is only updated for the canonical branch so the public URL always
+# reflects shipped state.
+#
+# One-time repo setup (Settings → Pages):
+#   - Build and deployment → Source: "GitHub Actions"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'design/**'
+      - '.github/workflows/pages-design.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: node design/tools/validate/validate.mjs
+      - run: node design/tools/preview/generate.mjs
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: design/preview
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

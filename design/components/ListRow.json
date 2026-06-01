@@ -1,0 +1,14 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "ListRow",
+  "description": "One row inside a list or section: label on the leading edge, optional accessory on the trailing edge.",
+  "props": {
+    "labelKey":  { "type": "textKey", "required": false },
+    "subtitleKey": { "type": "textKey", "required": false },
+    "accessory": { "type": "enum", "values": ["none", "chevron", "value", "switch", "checkmark"], "default": "none" },
+    "action":    { "type": "string", "required": false },
+    "destructive": { "type": "boolean", "default": false }
+  },
+  "children": "many",
+  "a11y": { "role": "listitem" }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "NavBar",
+  "description": "Top bar with title and optional leading/trailing slots (children with slot prop).",
+  "props": {
+    "titleKey":    { "type": "textKey", "required": false },
+    "subtitleKey": { "type": "textKey", "required": false }
+  },
+  "children": "many",
+  "a11y": { "role": "banner" }
+}

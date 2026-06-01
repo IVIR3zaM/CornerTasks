@@ -26,8 +26,22 @@ green() { printf '\033[32m%s\033[0m\n' "$*"; }
 blue()  { printf '\n\033[34m== %s ==\033[0m\n' "$*"; }
 yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 
-SCOPES="${SCOPES:-backend,web,macos}"
+SCOPES="${SCOPES:-design,backend,web,macos}"
 want() { [[ ",${SCOPES}," == *",$1,"* ]]; }
+
+# ---- design/ (design-as-code schema) -------------------------------------
+# Pure-Node, zero deps. Validates tokens / components / screens / overlays /
+# actions registry / fixtures, applies platform overlays, and cross-checks
+# that each platform's bindings.json implements every action and binding the
+# merged tree depends on. See design/README.md.
+if want design; then
+  blue "design/ — validate schemas + parity + impl cross-check"
+  if command -v node >/dev/null 2>&1; then
+    node design/tools/validate/validate.mjs
+  else
+    yellow "design/ — node not found on PATH; skipping. Install Node 22+ to run the design validator."
+  fi
+fi
 
 # ---- backend/aws ---------------------------------------------------------
 if want backend; then

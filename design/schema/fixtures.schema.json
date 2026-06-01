@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "fixtures.schema.json",
+  "title": "Fixture",
+  "type": "object",
+  "required": ["name", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema":     { "type": "string" },
+    "name":        { "type": "string" },
+    "description": { "type": "string" },
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

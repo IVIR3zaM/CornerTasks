@@ -1,0 +1,11 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Sheet",
+  "description": "Modal sheet (NSSheet / overlay dialog). Host opens it from an action; the schema only describes its content tree.",
+  "props": {
+    "titleKey":  { "type": "textKey", "required": true },
+    "openBinding": { "type": "string", "required": true }
+  },
+  "children": "many",
+  "a11y": { "role": "dialog", "labelFrom": "titleKey" }
+}

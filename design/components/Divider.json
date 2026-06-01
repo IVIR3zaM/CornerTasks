@@ -1,0 +1,11 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Divider",
+  "description": "Thin separator line.",
+  "props": {
+    "color":   { "type": "token", "slot": "color", "default": "{color.border}" },
+    "spacing": { "type": "token", "slot": "spacing", "default": "{spacing.4}" }
+  },
+  "children": "none",
+  "a11y": { "role": "separator" }
+}

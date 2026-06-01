@@ -4,6 +4,22 @@ Always-on-top side panel pinned to the right edge of the screen: add, edit (doub
 
 **Stack:** Swift 5.9 / SwiftUI on macOS 13+. SQLite (system `libsqlite3`) for storage. Apple `CryptoKit` for crypto. No external Swift packages.
 
+## Design schema
+
+Screen structure lives in [`design/`](../../design/README.md). The macOS-specific
+divergences are in [`design/platforms/macos/overlays/`](../../design/platforms/macos/overlays/):
+
+- **`settings.json` overlay** — hides the QR-code-display block (no camera /
+  scanner on macOS; privacy constraint), adds an Appearance section with the
+  Show-in-Dock toggle, and adds a Debug section (log level, copy diagnostics,
+  reset state, force crash).
+
+To consume the schema from SwiftUI, read the merged tree for `macos`
+(base screen + overlay; the validator's `applyOverlay` is the reference
+implementation), then map each component name to a SwiftUI view — `Stack`
+→ `VStack`/`HStack`, `Section` → rounded container, `Toggle` → SwiftUI
+`Toggle`, `Icon` → SF Symbol named by the logical `name`, etc.
+
 ## Standalone-first
 
 This is a **local-only** build by default. Cloud sync is **off**, there is **no** `backendURL` baked into the binary, and storage lives entirely on-device at `~/Library/Application Support/CornerTasks/tasks.sqlite3`. With sync off, the app makes no network calls. Cloud-sync UI lands in iteration 9; the encrypted sync engine in iteration 11 (macOS) and 12 (web).

@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "component.schema.json",
+  "title": "ComponentDefinition",
+  "type": "object",
+  "required": ["name", "props", "children", "a11y"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema":    { "type": "string" },
+    "name":       { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" },
+    "description":{ "type": "string" },
+    "props": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/propDef" }
+    },
+    "children":   { "enum": ["none", "many"] },
+    "a11y": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role":       { "type": "string" },
+        "labelFrom":  { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "propDef": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": true,
+      "properties": {
+        "type":     { "enum": ["string", "number", "boolean", "enum", "token", "textKey", "array"] },
+        "values":   { "type": "array", "items": { "type": "string" } },
+        "slot":     { "type": "string" },
+        "default":  {},
+        "required": { "type": "boolean" },
+        "description": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "../../schema/platform.schema.json",
+  "name": "web",
+  "displayName": "Web (mobile-first)",
+  "framework": "React",
+  "language": "TypeScript",
+  "capabilities": {
+    "camera": true,
+    "qrScanner": true,
+    "dock": false,
+    "menuBar": false,
+    "alwaysOnTop": false
+  },
+  "iconSet": "inline-svg",
+  "screensRoot": "../../screens",
+  "overlaysRoot": "./overlays"
+}

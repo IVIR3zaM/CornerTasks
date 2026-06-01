@@ -1,0 +1,18 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "SegmentedControl",
+  "description": "Tab/segmented picker. Native segmented control on macOS, custom on web.",
+  "props": {
+    "valueBinding": { "type": "string", "required": true },
+    "options": {
+      "type": "array",
+      "required": true,
+      "of": {
+        "value":    { "type": "string", "required": true },
+        "labelKey": { "type": "textKey", "required": true }
+      }
+    }
+  },
+  "children": "none",
+  "a11y": { "role": "tablist" }
+}

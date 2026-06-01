@@ -78,6 +78,97 @@ If a change feels like it needs a new abstraction layer, push back: most additio
 
 In v0.1.0 the macOS app lives at the repo root. Iteration 1 in [`ITERATIONS.md`](ITERATIONS.md) moves it under `apps/macos/`.
 
+## Design schema (SSOT for UI structure)
+
+`design/` holds the **declarative, platform-agnostic description of every screen** in CornerTasks: tokens, components, screens, and per-platform overlays — all pure JSON. See [`design/README.md`](design/README.md) for the deep dive; what follows is what an agent needs to *act* on it.
+
+### What it is the source of truth for
+
+- **Structure** — which nodes a screen contains, in what order, with what props, on each platform.
+- **Vocabulary** — the only colors, spacings, fonts, etc. that may be referenced (`tokens/`).
+- **Component catalog** — the only component names a screen may use (`components/`).
+- **Strings** — every user-facing string (`text/en.json`). Screens reference keys, never literals.
+- **Platform divergence** — every difference between platforms must exist as an overlay op with a `reason` field. If macOS shows something web doesn't, there's an overlay file documenting why.
+
+### What it is NOT the source of truth for
+
+- **Behavior** — `action: "cloud.ping"` names the handler; the implementation is in code.
+- **Data shape** — `valueBinding: "account.did"` is a hint; the model lives in Swift/TS.
+- **Visual taste** — token *roles* are declared here, but whether `spacing.6` is the right value is a design call.
+- **Per-row dynamic content** — task/archive row internals are still in app code.
+- **Pixel-perfect rendering** — the previewer approximates hierarchy/spacing, not the real apps.
+
+### Hard rules — enforced by `make design-validate`
+
+1. **Never put literal colors, spacings, or font sizes in a screen.** Use token refs like `"{color.surface}"` or `"{spacing.6}"`.
+2. **Never put literal user-facing strings in a screen or component.** Add a key to `design/text/en.json` and reference it.
+3. **Never use a component that isn't in `design/components/`.** Add the component definition first.
+4. **Every node needs a stable, unique, dot-namespaced `id`** (e.g. `settings.account.did.label`). Ids are how overlays target nodes — renaming an id is a breaking change.
+5. **Every platform difference is an overlay op.** Don't model a divergence by writing different code on each platform without an overlay; the validator's parity report is supposed to be the complete list of divergences.
+6. **Every `action:` and `valueBinding`/`openBinding`/`dataBinding` must be registered in `design/actions.json`,** and every platform that the merged tree depends on must list it in `design/platforms/<name>/bindings.json`. This is what catches "we added a button in the schema but forgot to wire it in code" and "we deleted a screen but left an orphan handler."
+7. **Run `make design-validate` after every change.** It must exit 0. The validator is also wired into `scripts/test-all.sh` (scope: `design`), the pre-commit hook (triggers on any `design/*` change), and CI (`.github/workflows/ci-design.yml`) — but don't wait for those, run it locally as you work.
+
+### Workflow for UI changes
+
+When a task touches anything visible (a new row, a new screen, a per-platform difference, a string change, a color tweak):
+
+1. **Edit JSON first.** Add the text key, add the node, write the overlay — whatever the change requires — under `design/`.
+2. **`make design-validate`** — fix until green. The parity report tells you exactly what changed per platform.
+3. **`make design-preview`** — open `design/preview/index.html`, click through the affected screens for both platforms, confirm the structure is right.
+4. **Then implement in app code** (SwiftUI under `apps/macos/`, React under `apps/web/`). Both apps must end up matching the merged tree.
+5. **Commit the JSON change in the same PR as the implementation.** Don't merge schema-only or code-only halves of a UI change.
+
+### Adding a new screen
+
+1. Create `design/screens/<screen-id>.json` (see existing files for shape).
+2. Add a `titleKey` and any new text keys to `design/text/en.json`.
+3. If a platform diverges, add `design/platforms/<platform>/overlays/<screen-id>.json`.
+4. Validate, preview, implement.
+
+### Adding a new action or binding
+
+1. Register it in [`design/actions.json`](design/actions.json) — `actions.<id>` for fire-and-forget handlers, `bindings.<id>` for reactive values (give a `type` and `description`).
+2. Reference it from a screen as `action: "<id>"` (Button), `valueBinding: "<id>"` (TextField, Toggle, …), `openBinding: "<id>"` (Disclosure, Sheet), or `dataBinding: "<id>"` (Repeat).
+3. For every platform that the merged tree uses it on, add the id to that platform's `design/platforms/<name>/bindings.json` `implements.actions` or `implements.bindings`.
+4. Implement the handler / state in that platform's app code.
+5. `make design-validate` must end with `missing=0` for every platform.
+
+### Adding a new dynamic list / row variant
+
+The schema models lists with the `Repeat` component, which takes a `dataBinding` (a list-typed binding registered in `actions.json`) and contains exactly one child — the row template. Row components (`TaskRow`, `ArchiveRow`, …) declare every visual state as a prop, and their values are item-binding refs like `"{item.title}"` that resolve at render time.
+
+For preview-time content, add sample rows to a fixture in [`design/fixtures/`](design/fixtures/) — `sample.json` (populated) and `empty.json` (empty-state) are the canonical pair. **When you add a new visual state to a row, extend the sample fixture to include an item that exercises it** — otherwise the previewer won't show what it looks like.
+
+### Adding a per-platform difference
+
+Pick the smallest overlay op that expresses the divergence:
+
+| op         | use it when                                    |
+|------------|------------------------------------------------|
+| `hide`     | a node should not render on this platform      |
+| `insert`   | this platform adds a node base doesn't have    |
+| `override` | same node, slightly different props            |
+
+Always include a `reason` field in the overlay file explaining *why* this platform diverges (capability, privacy, native idiom). Future agents read it to judge whether the divergence is still load-bearing.
+
+### Adding a new component
+
+1. Create `design/components/<Name>.json`. Follow an existing file (e.g. `Toggle.json`) for the prop-type vocabulary (`string|number|boolean|enum|token|textKey|array`).
+2. Declare every prop the component accepts — unknown props on instances fail validation.
+3. Specify `children: "none"` or `"many"`.
+4. Provide `a11y.role` (and `labelFrom` if it has a textual label).
+5. Implement the component in each platform's app code, mapping the prop names exactly.
+
+### Adding a new platform
+
+The full walkthrough is in [`design/README.md`](design/README.md) ("Adding a new platform"). Summary: create `design/platforms/<name>/platform.json` with honest `capabilities`, add overlays only for the screens that diverge from base, run validate + preview, then wire app code to read the merged tree.
+
+### When you are reasoning about a UI question
+
+Read the merged tree, not the source files. The validator's `applyOverlay` in [`design/tools/validate/validate.mjs`](design/tools/validate/validate.mjs) is the reference merge implementation — same function the previewer uses. Anything you conclude from reading SwiftUI/React directly might be wrong; the schema is the contract.
+
+When the schema and the implementation disagree, **the schema wins** — fix the code, not the schema. (Unless the schema is itself wrong, in which case fix the schema first, then the code.)
+
 ## Storage (macOS)
 
 - SQLite at `~/Library/Application Support/CornerTasks/tasks.sqlite3`.
@@ -168,6 +259,7 @@ In v0.1.0 the macOS app lives at the repo root. Iteration 1 in [`ITERATIONS.md`]
 ## When making changes
 
 - Never create a new git branch. Always work directly on the current branch.
+- **If your change touches anything visible, update `design/` first** (tokens, components, screens, overlays, text keys) and run `make design-validate` until green. See "Design schema" above. Schema and implementation ship in the same PR.
 - Update `README.md` if user-visible behavior changes.
 - Update this file if architectural conventions change.
 - Bump the version per "Versioning" above for any user-facing release.

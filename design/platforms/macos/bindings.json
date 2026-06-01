@@ -1,0 +1,36 @@
+{
+  "$schema": "../../schema/bindings.schema.json",
+  "platform": "macos",
+  "implements": {
+    "actions": [
+      "settings.toggle",
+      "tasks.add",
+      "cloud.enable",
+      "cloud.confirmEnable",
+      "cloud.disable",
+      "cloud.saveUrl",
+      "cloud.ping",
+      "account.forget",
+      "debug.copyDiagnostics",
+      "debug.resetState",
+      "debug.forceCrash"
+    ],
+    "bindings": [
+      "prefs.backendURL",
+      "prefs.syncIntervalAmount",
+      "prefs.syncIntervalUnit",
+      "prefs.showInDock",
+      "prefs.logLevel",
+      "ui.draftTitle",
+      "ui.activeTab",
+      "ui.showMnemonic",
+      "ui.showEnableSheet",
+      "ui.enableUrl",
+      "account.did",
+      "account.mnemonic",
+      "device.id",
+      "tasks.active",
+      "tasks.archived"
+    ]
+  }
+}

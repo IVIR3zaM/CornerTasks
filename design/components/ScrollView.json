@@ -1,0 +1,11 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "ScrollView",
+  "description": "Scrollable container along one axis.",
+  "props": {
+    "axis":    { "type": "enum", "values": ["vertical", "horizontal"], "default": "vertical" },
+    "padding": { "type": "token", "slot": "spacing", "default": "{spacing.0}" }
+  },
+  "children": "many",
+  "a11y": { "role": "group" }
+}

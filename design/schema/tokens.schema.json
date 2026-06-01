@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "tokens.schema.json",
+  "title": "DesignTokens",
+  "description": "W3C DTCG-style token file. Leaves carry $value and $type; intermediate nodes are groups. Aliases use {dot.path} syntax.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "$schema": { "type": "string" },
+    "theme":   { "type": "string" },
+    "locale":  { "type": "string" }
+  },
+  "patternProperties": {
+    "^(?!\\$|theme$|locale$)[a-zA-Z][a-zA-Z0-9_-]*$": { "$ref": "#/definitions/group" }
+  },
+  "definitions": {
+    "group": {
+      "oneOf": [
+        { "$ref": "#/definitions/token" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-zA-Z0-9_-]+$": { "$ref": "#/definitions/group" }
+          }
+        }
+      ]
+    },
+    "token": {
+      "type": "object",
+      "required": ["$value", "$type"],
+      "additionalProperties": false,
+      "properties": {
+        "$value": { "type": ["string", "number"] },
+        "$type":  { "type": "string", "enum": ["color", "dimension", "fontFamily", "fontWeight", "shadow", "duration"] },
+        "$description": { "type": "string" }
+      }
+    }
+  }
+}

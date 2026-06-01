@@ -1,0 +1,18 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "TextField",
+  "description": "Single-line text input. Variants signal keyboard hints to native platforms.",
+  "props": {
+    "labelKey":       { "type": "textKey", "required": false },
+    "placeholderKey": { "type": "textKey", "required": false },
+    "valueBinding":   { "type": "string",  "required": true, "description": "Logical state key the host wires to a binding." },
+    "kind":           { "type": "enum", "values": ["text", "url", "number", "password"], "default": "text" },
+    "min":            { "type": "number", "required": false },
+    "max":            { "type": "number", "required": false },
+    "step":           { "type": "number", "required": false },
+    "autocapitalize": { "type": "enum", "values": ["none", "sentences", "words", "characters"], "default": "sentences" },
+    "spellcheck":     { "type": "boolean", "default": true }
+  },
+  "children": "none",
+  "a11y": { "role": "textbox", "labelFrom": "labelKey" }
+}

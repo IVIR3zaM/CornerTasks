@@ -1,0 +1,60 @@
+{
+  "$schema": "../../../schema/overlay.schema.json",
+  "screen": "settings",
+  "reason": "macOS removes QR import (no camera/scanner; privacy constraint), adds the Show-in-Dock toggle (macOS-only capability), and exposes a Debug section that web does not need.",
+  "ops": [
+    { "op": "hide", "target": "settings.account.qr" },
+
+    {
+      "op": "insert",
+      "target": { "parent": "settings.stack", "position": "prepend" },
+      "node": {
+        "id": "settings.appearance",
+        "component": "Section",
+        "props": { "titleKey": "settings.appearance.title" },
+        "children": [
+          { "id": "settings.appearance.dock",
+            "component": "Toggle",
+            "props": { "labelKey": "settings.dock.title", "valueBinding": "prefs.showInDock", "helpKey": "settings.dock.help" } }
+        ]
+      }
+    },
+
+    {
+      "op": "insert",
+      "target": { "parent": "settings.stack", "position": "append" },
+      "node": {
+        "id": "settings.debug",
+        "component": "Section",
+        "props": { "titleKey": "settings.debug.title" },
+        "children": [
+          { "id": "settings.debug.warn", "component": "Text", "props": { "textKey": "settings.debug.warn", "variant": "warn" } },
+
+          { "id": "settings.debug.logLevel.label", "component": "Text", "props": { "textKey": "settings.debug.logLevel", "variant": "label" } },
+          {
+            "id": "settings.debug.logLevel.select",
+            "component": "Select",
+            "props": {
+              "valueBinding": "prefs.logLevel",
+              "options": [
+                { "value": "info",  "labelKey": "settings.debug.logLevel.info" },
+                { "value": "debug", "labelKey": "settings.debug.logLevel.debug" },
+                { "value": "trace", "labelKey": "settings.debug.logLevel.trace" }
+              ]
+            }
+          },
+
+          { "id": "settings.debug.copyDiagnostics",
+            "component": "Button",
+            "props": { "labelKey": "settings.debug.copyDiagnostics", "variant": "text", "action": "debug.copyDiagnostics" } },
+          { "id": "settings.debug.resetState",
+            "component": "Button",
+            "props": { "labelKey": "settings.debug.resetState", "variant": "destructive", "action": "debug.resetState" } },
+          { "id": "settings.debug.forceCrash",
+            "component": "Button",
+            "props": { "labelKey": "settings.debug.forceCrash", "variant": "destructive", "action": "debug.forceCrash" } }
+        ]
+      }
+    }
+  ]
+}

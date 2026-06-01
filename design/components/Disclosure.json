@@ -1,0 +1,11 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Disclosure",
+  "description": "Collapsible block with a summary that toggles visibility of the children.",
+  "props": {
+    "summaryKey": { "type": "textKey", "required": true },
+    "openBinding": { "type": "string", "required": false }
+  },
+  "children": "many",
+  "a11y": { "role": "group", "labelFrom": "summaryKey" }
+}

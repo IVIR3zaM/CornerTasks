@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "overlay.schema.json",
+  "title": "ScreenOverlay",
+  "type": "object",
+  "required": ["screen", "ops"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "screen":  { "type": "string" },
+    "reason":  { "type": "string" },
+    "ops": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["op", "target"],
+            "additionalProperties": false,
+            "properties": {
+              "op":     { "const": "hide" },
+              "target": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["op", "target", "node"],
+            "additionalProperties": false,
+            "properties": {
+              "op":     { "const": "insert" },
+              "target": {
+                "type": "object",
+                "required": ["parent"],
+                "additionalProperties": false,
+                "properties": {
+                  "parent":   { "type": "string" },
+                  "position": { "enum": ["prepend", "append"] },
+                  "before":   { "type": "string" },
+                  "after":    { "type": "string" }
+                }
+              },
+              "node":   { "type": "object" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["op", "target", "props"],
+            "additionalProperties": false,
+            "properties": {
+              "op":     { "const": "override" },
+              "target": { "type": "string" },
+              "props":  { "type": "object" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

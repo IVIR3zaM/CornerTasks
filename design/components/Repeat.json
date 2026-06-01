@@ -1,0 +1,11 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Repeat",
+  "description": "Renders its single child component once per item in dataBinding. Real apps map this to SwiftUI ForEach or React .map(); the previewer iterates the fixture entries for that binding. Use this anywhere a screen contains a dynamic list of identical rows.",
+  "props": {
+    "dataBinding":  { "type": "string", "required": true, "description": "A list binding registered in actions.json (e.g. 'tasks.active')." },
+    "emptyTextKey": { "type": "textKey", "required": false, "description": "If set, shown when the list is empty instead of the children." }
+  },
+  "children": "many",
+  "a11y": { "role": "list" }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "../schema/screen.schema.json",
+  "id": "enable-cloud-sync",
+  "titleKey": "settings.cloud.enable",
+  "root": {
+    "id": "enable.root",
+    "component": "Sheet",
+    "props": { "titleKey": "settings.cloud.enable", "openBinding": "ui.showEnableSheet" },
+    "children": [
+      {
+        "id": "enable.stack",
+        "component": "Stack",
+        "props": { "axis": "vertical", "spacing": "{spacing.6}", "padding": "{spacing.8}" },
+        "children": [
+          { "id": "enable.url.label", "component": "Text",      "props": { "textKey": "settings.cloud.backendUrl", "variant": "label" } },
+          { "id": "enable.url.input", "component": "TextField", "props": { "valueBinding": "ui.enableUrl", "kind": "url", "autocapitalize": "none", "spellcheck": false } },
+          { "id": "enable.confirm",   "component": "Button",    "props": { "labelKey": "settings.cloud.enable", "variant": "primary", "action": "cloud.confirmEnable" } }
+        ]
+      }
+    ]
+  }
+}

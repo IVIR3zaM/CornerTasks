@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bindings.schema.json",
+  "title": "PlatformBindings",
+  "description": "What this platform claims to implement. The validator cross-checks against the merged tree per platform: every action and every binding used must appear in this file's 'implements' lists, and conversely every entry here should be reachable from a merged tree (else it's orphan).",
+  "type": "object",
+  "required": ["platform", "implements"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema":  { "type": "string" },
+    "platform": { "type": "string" },
+    "implements": {
+      "type": "object",
+      "required": ["actions", "bindings"],
+      "additionalProperties": false,
+      "properties": {
+        "actions":  { "type": "array", "items": { "type": "string" } },
+        "bindings": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

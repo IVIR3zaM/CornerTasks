@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schema/bindings.schema.json",
+  "platform": "web",
+  "implements": {
+    "actions": [
+      "settings.toggle",
+      "tasks.add",
+      "cloud.enable",
+      "cloud.confirmEnable",
+      "cloud.disable",
+      "cloud.saveUrl",
+      "cloud.ping",
+      "account.forget",
+      "account.scanQR"
+    ],
+    "bindings": [
+      "prefs.backendURL",
+      "prefs.syncIntervalAmount",
+      "prefs.syncIntervalUnit",
+      "ui.draftTitle",
+      "ui.activeTab",
+      "ui.showMnemonic",
+      "ui.showQR",
+      "ui.showQRScan",
+      "ui.showEnableSheet",
+      "ui.enableUrl",
+      "account.did",
+      "account.mnemonic",
+      "account.qrPng",
+      "device.id",
+      "tasks.active",
+      "tasks.archived"
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "../schema/screen.schema.json",
+  "id": "archive",
+  "titleKey": "tabs.archive",
+  "root": {
+    "id": "archive.root",
+    "component": "ScrollView",
+    "props": { "axis": "vertical" },
+    "children": [
+      {
+        "id": "archive.list.items",
+        "component": "Repeat",
+        "props": { "dataBinding": "tasks.archived", "emptyTextKey": "archive.empty" },
+        "children": [
+          {
+            "id": "archive.list.row",
+            "component": "ArchiveRow",
+            "props": {
+              "title": "{item.title}",
+              "createdAt": "{item.createdAt}",
+              "completedAt": "{item.completedAt}",
+              "dueLabel": "{item.dueLabel}",
+              "dueState": "{item.dueState}",
+              "taskId": "{item.taskId}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

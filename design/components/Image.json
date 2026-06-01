@@ -1,0 +1,14 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Image",
+  "description": "Decorative or content image. For dynamic images (QR code) use valueBinding; for static use src.",
+  "props": {
+    "src":          { "type": "string", "required": false },
+    "valueBinding": { "type": "string", "required": false },
+    "altKey":       { "type": "textKey", "required": false },
+    "width":        { "type": "token", "slot": "spacing", "required": false },
+    "height":       { "type": "token", "slot": "spacing", "required": false }
+  },
+  "children": "none",
+  "a11y": { "role": "img", "labelFrom": "altKey" }
+}

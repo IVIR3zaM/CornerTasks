@@ -1,0 +1,84 @@
+{
+  "$schema": "../schema/tokens.schema.json",
+  "color": {
+    "neutral": {
+      "0":   { "$value": "#ffffff", "$type": "color" },
+      "50":  { "$value": "#f3f3f5", "$type": "color" },
+      "100": { "$value": "#e5e5ea", "$type": "color" },
+      "200": { "$value": "#d1d1d6", "$type": "color" },
+      "400": { "$value": "#a1a1a6", "$type": "color" },
+      "500": { "$value": "#8e8e93", "$type": "color" },
+      "700": { "$value": "#3a3a3c", "$type": "color" },
+      "800": { "$value": "#2c2c2e", "$type": "color" },
+      "900": { "$value": "#1c1c1e", "$type": "color" },
+      "950": { "$value": "#000000", "$type": "color" }
+    },
+    "white-alpha": {
+      "06": { "$value": "rgba(255,255,255,0.06)", "$type": "color" },
+      "09": { "$value": "rgba(255,255,255,0.09)", "$type": "color" },
+      "08": { "$value": "rgba(255,255,255,0.08)", "$type": "color" }
+    },
+    "black-alpha": {
+      "04": { "$value": "rgba(0,0,0,0.04)", "$type": "color" },
+      "06": { "$value": "rgba(0,0,0,0.06)", "$type": "color" },
+      "08": { "$value": "rgba(0,0,0,0.08)", "$type": "color" }
+    },
+    "blue":   { "500": { "$value": "#0a84ff", "$type": "color" } },
+    "red":    { "500": { "$value": "#ff453a", "$type": "color" } },
+    "orange": { "500": { "$value": "#ff9f0a", "$type": "color" } },
+    "yellow": { "500": { "$value": "#ffd60a", "$type": "color" } }
+  },
+  "spacing": {
+    "0":  { "$value": "0px",  "$type": "dimension" },
+    "1":  { "$value": "2px",  "$type": "dimension" },
+    "2":  { "$value": "4px",  "$type": "dimension" },
+    "3":  { "$value": "6px",  "$type": "dimension" },
+    "4":  { "$value": "8px",  "$type": "dimension" },
+    "5":  { "$value": "10px", "$type": "dimension" },
+    "6":  { "$value": "12px", "$type": "dimension" },
+    "7":  { "$value": "14px", "$type": "dimension" },
+    "8":  { "$value": "16px", "$type": "dimension" },
+    "10": { "$value": "20px", "$type": "dimension" },
+    "12": { "$value": "24px", "$type": "dimension" }
+  },
+  "radius": {
+    "sm":  { "$value": "6px",  "$type": "dimension" },
+    "md":  { "$value": "8px",  "$type": "dimension" },
+    "lg":  { "$value": "12px", "$type": "dimension" },
+    "xl":  { "$value": "16px", "$type": "dimension" },
+    "pill":{ "$value": "999px","$type": "dimension" }
+  },
+  "font": {
+    "family": {
+      "system": {
+        "$value": "-apple-system, BlinkMacSystemFont, 'SF Pro Rounded', 'SF Pro Text', 'Segoe UI', system-ui, sans-serif",
+        "$type": "fontFamily"
+      },
+      "mono": {
+        "$value": "ui-monospace, SFMono-Regular, Menlo, monospace",
+        "$type": "fontFamily"
+      }
+    },
+    "size": {
+      "10": { "$value": "10px", "$type": "dimension" },
+      "12": { "$value": "12px", "$type": "dimension" },
+      "13": { "$value": "13px", "$type": "dimension" },
+      "15": { "$value": "15px", "$type": "dimension" },
+      "17": { "$value": "17px", "$type": "dimension" },
+      "22": { "$value": "22px", "$type": "dimension" }
+    },
+    "weight": {
+      "regular":  { "$value": "400", "$type": "fontWeight" },
+      "medium":   { "$value": "500", "$type": "fontWeight" },
+      "semibold": { "$value": "600", "$type": "fontWeight" },
+      "bold":     { "$value": "700", "$type": "fontWeight" }
+    }
+  },
+  "shadow": {
+    "sm": { "$value": "0 1px 2px rgba(0,0,0,0.15)", "$type": "shadow" }
+  },
+  "motion": {
+    "fast":   { "$value": "120ms", "$type": "duration" },
+    "normal": { "$value": "200ms", "$type": "duration" }
+  }
+}

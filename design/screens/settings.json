@@ -1,0 +1,108 @@
+{
+  "$schema": "../schema/screen.schema.json",
+  "id": "settings",
+  "titleKey": "settings.open",
+  "root": {
+    "id": "settings.root",
+    "component": "ScrollView",
+    "props": { "axis": "vertical", "padding": "{spacing.0}" },
+    "children": [
+      {
+        "id": "settings.stack",
+        "component": "Stack",
+        "props": { "axis": "vertical", "spacing": "{spacing.7}", "padding": "{spacing.0}" },
+        "children": [
+
+          {
+            "id": "settings.cloud",
+            "component": "Section",
+            "props": { "titleKey": "settings.cloud.title.off", "padding": "{spacing.6}" },
+            "children": [
+              { "id": "settings.cloud.body",   "component": "Text", "props": { "textKey": "settings.cloud.body.off", "variant": "body" } },
+              { "id": "settings.cloud.detail", "component": "Text", "props": { "textKey": "settings.cloud.body.off.detail", "variant": "muted" } },
+
+              { "id": "settings.cloud.url.label", "component": "Text",      "props": { "textKey": "settings.cloud.backendUrl", "variant": "label" } },
+              { "id": "settings.cloud.url.input", "component": "TextField",
+                "props": { "valueBinding": "prefs.backendURL", "kind": "url", "autocapitalize": "none", "spellcheck": false } },
+
+              {
+                "id": "settings.cloud.url.actions",
+                "component": "Stack",
+                "props": { "axis": "horizontal", "spacing": "{spacing.4}" },
+                "children": [
+                  { "id": "settings.cloud.url.test", "component": "Button", "props": { "labelKey": "settings.cloud.test", "variant": "text", "action": "cloud.ping" } },
+                  { "id": "settings.cloud.url.save", "component": "Button", "props": { "labelKey": "settings.cloud.save", "variant": "text", "action": "cloud.saveUrl" } }
+                ]
+              },
+
+              { "id": "settings.cloud.interval.divider", "component": "Divider", "props": {} },
+              { "id": "settings.cloud.interval.label",   "component": "Text", "props": { "textKey": "settings.cloud.intervalLabel", "variant": "label" } },
+              {
+                "id": "settings.cloud.interval.row",
+                "component": "Stack",
+                "props": { "axis": "horizontal", "spacing": "{spacing.4}", "alignment": "center" },
+                "children": [
+                  { "id": "settings.cloud.interval.amount",
+                    "component": "TextField",
+                    "props": { "valueBinding": "prefs.syncIntervalAmount", "kind": "number", "min": 1, "max": 59, "step": 1 } },
+                  { "id": "settings.cloud.interval.unit",
+                    "component": "Select",
+                    "props": {
+                      "valueBinding": "prefs.syncIntervalUnit",
+                      "options": [
+                        { "value": "seconds", "labelKey": "settings.cloud.unit.seconds" },
+                        { "value": "minutes", "labelKey": "settings.cloud.unit.minutes" },
+                        { "value": "hours",   "labelKey": "settings.cloud.unit.hours" }
+                      ]
+                    } }
+                ]
+              },
+              { "id": "settings.cloud.interval.range", "component": "Text", "props": { "textKey": "settings.cloud.intervalRange", "variant": "muted" } },
+
+              { "id": "settings.cloud.enable",  "component": "Button", "props": { "labelKey": "settings.cloud.enable",  "variant": "primary", "action": "cloud.enable" } },
+              { "id": "settings.cloud.disable", "component": "Button", "props": { "labelKey": "settings.cloud.disable", "variant": "text",    "action": "cloud.disable" } }
+            ]
+          },
+
+          { "id": "settings.divider.account", "component": "Divider", "props": {} },
+
+          {
+            "id": "settings.account",
+            "component": "Section",
+            "props": { "titleKey": "settings.account.title" },
+            "children": [
+              { "id": "settings.account.did.label", "component": "Text",      "props": { "textKey": "settings.account.did", "variant": "label" } },
+              { "id": "settings.account.did.value", "component": "CodeBlock", "props": { "valueBinding": "account.did" } },
+
+              { "id": "settings.account.device.label", "component": "Text",      "props": { "textKey": "settings.account.deviceId", "variant": "label" } },
+              { "id": "settings.account.device.value", "component": "CodeBlock", "props": { "valueBinding": "device.id" } },
+
+              {
+                "id": "settings.account.mnemonic",
+                "component": "Disclosure",
+                "props": { "summaryKey": "settings.account.showMnemonic", "openBinding": "ui.showMnemonic" },
+                "children": [
+                  { "id": "settings.account.mnemonic.warn",  "component": "Text",      "props": { "textKey": "settings.account.mnemonicWarn", "variant": "warn" } },
+                  { "id": "settings.account.mnemonic.value", "component": "CodeBlock", "props": { "valueBinding": "account.mnemonic" } }
+                ]
+              },
+
+              {
+                "id": "settings.account.qr",
+                "component": "Disclosure",
+                "props": { "summaryKey": "settings.account.showQR", "openBinding": "ui.showQR" },
+                "children": [
+                  { "id": "settings.account.qr.warn",  "component": "Text",  "props": { "textKey": "settings.account.qrWarn", "variant": "warn" } },
+                  { "id": "settings.account.qr.image", "component": "Image", "props": { "valueBinding": "account.qrPng", "altKey": "settings.account.showQR" } },
+                  { "id": "settings.account.qr.hint",  "component": "Text",  "props": { "textKey": "settings.account.qrScanHint", "variant": "muted" } }
+                ]
+              },
+
+              { "id": "settings.account.forget", "component": "Button", "props": { "labelKey": "settings.account.forget", "variant": "destructive", "action": "account.forget" } }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

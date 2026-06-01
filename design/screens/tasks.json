@@ -1,0 +1,73 @@
+{
+  "$schema": "../schema/screen.schema.json",
+  "id": "tasks",
+  "titleKey": "tabs.tasks",
+  "root": {
+    "id": "tasks.root",
+    "component": "Stack",
+    "props": { "axis": "vertical", "spacing": "{spacing.7}", "padding": "{spacing.8}" },
+    "children": [
+      {
+        "id": "tasks.header",
+        "component": "NavBar",
+        "props": { "titleKey": "app.title", "subtitleKey": "app.subtitle.counts" },
+        "children": [
+          { "id": "tasks.header.gear", "component": "Button", "props": { "labelKey": "settings.open", "variant": "icon", "icon": "gear", "action": "settings.toggle" } }
+        ]
+      },
+      {
+        "id": "tasks.tabs",
+        "component": "SegmentedControl",
+        "props": {
+          "valueBinding": "ui.activeTab",
+          "options": [
+            { "value": "tasks",   "labelKey": "tabs.tasks" },
+            { "value": "archive", "labelKey": "tabs.archive" }
+          ]
+        }
+      },
+      {
+        "id": "tasks.add",
+        "component": "Section",
+        "props": { "padding": "{spacing.6}", "radius": "{radius.xl}" },
+        "children": [
+          {
+            "id": "tasks.add.row",
+            "component": "Stack",
+            "props": { "axis": "horizontal", "spacing": "{spacing.4}", "alignment": "center" },
+            "children": [
+              { "id": "tasks.add.input",  "component": "TextField", "props": { "placeholderKey": "tasks.add.placeholder", "valueBinding": "ui.draftTitle", "kind": "text" } },
+              { "id": "tasks.add.button", "component": "Button",    "props": { "labelKey": "tasks.add.button", "variant": "primary", "icon": "plus", "action": "tasks.add" } }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "tasks.list",
+        "component": "ScrollView",
+        "props": { "axis": "vertical" },
+        "children": [
+          {
+            "id": "tasks.list.items",
+            "component": "Repeat",
+            "props": { "dataBinding": "tasks.active", "emptyTextKey": "tasks.empty" },
+            "children": [
+              {
+                "id": "tasks.list.row",
+                "component": "TaskRow",
+                "props": {
+                  "title": "{item.title}",
+                  "createdAt": "{item.createdAt}",
+                  "dueState": "{item.dueState}",
+                  "dueLabel": "{item.dueLabel}",
+                  "taskId": "{item.taskId}"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      { "id": "tasks.footer", "component": "Text", "props": { "textKey": "app.version", "variant": "caption", "align": "center" } }
+    ]
+  }
+}

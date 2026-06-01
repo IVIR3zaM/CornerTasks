@@ -1,0 +1,12 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Toggle",
+  "description": "Boolean switch. Renders as <input type=checkbox role=switch> on web and Toggle on SwiftUI.",
+  "props": {
+    "labelKey":     { "type": "textKey", "required": true },
+    "valueBinding": { "type": "string",  "required": true },
+    "helpKey":      { "type": "textKey", "required": false }
+  },
+  "children": "none",
+  "a11y": { "role": "switch", "labelFrom": "labelKey" }
+}

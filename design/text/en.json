@@ -1,0 +1,69 @@
+{
+  "$schema": "../schema/text.schema.json",
+  "locale": "en",
+  "strings": {
+    "app.title": "Corner Tasks",
+    "app.subtitle.counts": "{active} open • {archived} archived",
+    "app.version": "v{version}",
+
+    "tabs.tasks": "Tasks",
+    "tabs.archive": "Archive",
+
+    "tasks.add.placeholder": "Add a task…",
+    "tasks.add.button": "Add task",
+    "tasks.empty": "Nothing on your head. Nice.",
+    "archive.empty": "No completed tasks yet.",
+
+    "settings.open": "Open settings",
+    "settings.close": "Close settings",
+
+    "settings.cloud.title.on":  "Cloud Sync — On",
+    "settings.cloud.title.off": "Cloud Sync — Off",
+    "settings.cloud.body.on":   "Tasks on this device will sync to the backend you configured.",
+    "settings.cloud.body.off":  "Cloud sync is off. Your tasks stay on this device.",
+    "settings.cloud.body.off.detail": "You can stay offline forever. If you decide to enable later, you can either generate a new key (a brand new account) or import an existing key from another device.",
+    "settings.cloud.backendUrl": "Backend URL",
+    "settings.cloud.test":   "Test",
+    "settings.cloud.save":   "Save",
+    "settings.cloud.reachable": "reachable",
+    "settings.cloud.intervalLabel": "Sync every",
+    "settings.cloud.intervalRange": "Range: 10 s – 24 h. Applies to both push and pull.",
+    "settings.cloud.unit.seconds": "sec",
+    "settings.cloud.unit.minutes": "min",
+    "settings.cloud.unit.hours":   "hr",
+    "settings.cloud.enable":  "Enable cloud sync",
+    "settings.cloud.disable": "Disable cloud sync",
+
+    "settings.account.title": "Account",
+    "settings.account.did":   "DID",
+    "settings.account.deviceId": "Device ID",
+    "settings.account.debugTag": "debug",
+    "settings.account.showMnemonic": "Show mnemonic",
+    "settings.account.showQR": "Show QR code",
+    "settings.account.qrScanHint": "Scan this with another device to import this account.",
+    "settings.account.mnemonicWarn": "Treat these 12 words like a password. Anyone with them can read and modify this account's tasks.",
+    "settings.account.qrWarn": "This QR code encodes the same 12 words as your mnemonic.",
+    "settings.account.forget": "Forget this device",
+    "settings.account.forgetWarn": "This wipes the mnemonic from this browser. Tasks on this device are kept; cloud sync turns off.",
+    "settings.account.forgetConfirm": "Forget anyway",
+    "settings.account.cancel": "Cancel",
+
+    "settings.appearance.title": "Appearance",
+    "settings.dock.title": "Show icon in Dock",
+    "settings.dock.help": "Changes apply immediately. The menu bar icon stays visible either way.",
+
+    "settings.debug.title": "Debug",
+    "settings.debug.logLevel": "Log level",
+    "settings.debug.logLevel.info":  "info",
+    "settings.debug.logLevel.debug": "debug",
+    "settings.debug.logLevel.trace": "trace",
+    "settings.debug.forceCrash":  "Force crash",
+    "settings.debug.resetState":  "Reset all local state",
+    "settings.debug.copyDiagnostics": "Copy diagnostics to clipboard",
+    "settings.debug.warn": "These controls are intended for development. Use with care.",
+
+    "settings.qr.scan.title": "Scan QR from another device",
+    "settings.qr.scan.action": "Scan QR code",
+    "settings.qr.scan.help": "Point your camera at the QR shown by another device to import its account."
+  }
+}

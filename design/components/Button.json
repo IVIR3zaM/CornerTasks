@@ -1,0 +1,16 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Button",
+  "description": "Tappable button. Variants map to native control styles per platform.",
+  "props": {
+    "labelKey": { "type": "textKey", "required": true },
+    "variant":  { "type": "enum", "values": ["primary", "text", "destructive", "icon"], "default": "text" },
+    "icon":     { "type": "string", "required": false, "description": "Logical icon id resolved per platform (e.g. 'gear', 'plus', 'close')." },
+    "action":   { "type": "string", "required": true, "description": "Logical action id the host wires to a handler." },
+    "disabled": { "type": "boolean", "default": false },
+    "background": { "type": "token", "slot": "color", "required": false },
+    "color":      { "type": "token", "slot": "color", "required": false }
+  },
+  "children": "none",
+  "a11y": { "role": "button", "labelFrom": "labelKey" }
+}

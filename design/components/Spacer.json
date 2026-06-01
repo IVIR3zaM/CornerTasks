@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "Spacer",
+  "description": "Flexible empty space that pushes siblings apart inside a Stack.",
+  "props": {
+    "min": { "type": "token", "slot": "spacing", "default": "{spacing.0}" }
+  },
+  "children": "none",
+  "a11y": { "role": "none" }
+}

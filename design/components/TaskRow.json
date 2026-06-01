@@ -1,0 +1,14 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "TaskRow",
+  "description": "One active task row. Two stacked sub-rows: top has a circular check, title (medium weight), an edit pencil, the due-date control, and a drag handle. Meta row (indented) shows the created-date chip and, if dueState != none, a colored due badge like 'Overdue · Aug 28, 2026'. The whole row gets a translucent tint of the due color when dueState is overdue/today/tomorrow. A faint monospace debug task id sits below.",
+  "props": {
+    "title":      { "type": "string", "required": true },
+    "createdAt":  { "type": "string", "required": true, "description": "Human-formatted created date (e.g. 'Aug 28, 2026')." },
+    "dueState":   { "type": "enum",   "values": ["none", "overdue", "today", "tomorrow", "future"], "default": "none" },
+    "dueLabel":   { "type": "string", "required": false, "description": "Full label shown inside the due pill, e.g. 'Overdue · Aug 28, 2026'." },
+    "taskId":     { "type": "string", "required": false, "description": "Lowercased task id rendered as the debug line." }
+  },
+  "children": "none",
+  "a11y": { "role": "listitem" }
+}
