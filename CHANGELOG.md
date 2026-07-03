@@ -3,6 +3,25 @@
 All notable changes to CornerTasks are recorded here. Dates are ISO-8601.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **v0.3.0 re-planned around the First Person Project (FPP).** The previous
+  plan (custom WebSocket sync, AWS + Docker/Postgres backends) is replaced:
+  `did:webvh` account hosted by a self-hosted VTA, per-device `did:peer`
+  identities, DIDComm v2.1 sync via a blind mediator, client configuration by
+  account DID only, local MCP server for AI agents, deployment target
+  Raspberry Pi Zero 2 W (systemd-run native binaries, no Docker) behind
+  Cloudflare Tunnel. New architecture contract in `docs/ARCHITECTURE.md`;
+  new iterations 15–27 in `ITERATIONS.md`; `AGENTS.md`/`README.md` updated;
+  `PROMPT.md` gains a mandatory scope-check/sub-iteration split and reads the
+  architecture doc section-scoped. The AWS backend will be archived at the
+  v0.3.0 release.
+- **New agent conventions** (`AGENTS.md`): every change adds a
+  `CHANGELOG.md` entry under Unreleased, and documentation drift is fixed in
+  the same PR it is noticed (or recorded in ITERATIONS.md Open questions).
+
 ## [v0.2.1] — 2026-05-21
 
 ### Fixed

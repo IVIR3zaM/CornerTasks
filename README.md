@@ -1,8 +1,10 @@
 # CornerTasks
 
-**Version: v0.2.0**
+**Version: v0.2.1**
 
 A tiny task widget. CornerTasks ships as a macOS app (a vertical strip pinned to the right edge of your screen) and a mobile-first web app. Cloud sync between devices is opt-in and end-to-end encrypted; if you don't want sync you don't get any network calls.
+
+> **Where v0.3.0 is heading:** CornerTasks is becoming a real-world example of the [First Person Project](https://firstperson.network) — your account becomes a web-resolvable `did:webvh` hosted by your own Verifiable Trust Agent (self-hosted, e.g. a Raspberry Pi at home behind a Cloudflare Tunnel), every device holds its own revocable DID, sync flows device-to-device over DIDComm v2.1 through a blind mediator with **no central task storage anywhere**, and AI agents (Claude, IDE assistants) can manage your tasks through a local MCP server under their own accountable DIDs. Clients are configured by a single value — the account DID; every endpoint is discovered from DID documents. The AWS backend below is removed at v0.3.0. Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · work plan: [`ITERATIONS.md`](ITERATIONS.md).
 
 UI structure is declared as data under [`design/`](design/README.md) — JSON tokens, components, screens, and per-platform overlays. Run `make design-validate` for the parity report and `make design-preview` for a side-by-side HTML preview.
 
@@ -39,6 +41,8 @@ For pull-request previews (which Pages doesn't serve) the HTML is regenerated on
 - Camera-based QR scan for importing a key from another device
 
 ## Cloud sync (opt-in, v0.2.0+)
+
+> This section describes the **v0.2.x AWS-based sync** that ships today. It is replaced wholesale in v0.3.0 by FPP/DIDComm sync (see the note at the top) and `backend/aws/` will be archived.
 
 - **Web app** (mobile-first) hosted on S3 + CloudFront, with the same feature set as the macOS app.
 - **AWS serverless backend** (TypeScript SAM + DynamoDB) for optional cross-device sync.

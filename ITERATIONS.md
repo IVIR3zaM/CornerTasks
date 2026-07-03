@@ -7,9 +7,9 @@ This file tracks ordered work plans, one section per minor release. v0.3.0 start
 This block lives at the top of the file at a stable location so `PROMPT.md` can reference it without naming any iteration. Update the line numbers below whenever the v0.3.0 section moves — never put them in `PROMPT.md`.
 
 - **Active release**: **v0.3.0**.
-- **Active status checklist** (the `[ ]`/`[x]` list to scan): **lines 519–533**. Read these to pick the lowest-numbered unchecked iteration **N** (range: 15..27).
-- **Active iteration bodies start at**: **line 537**. Each iteration is delimited by a `## Iteration N — <title>` heading; the next `## Iteration ...` heading (or `## Open questions` for the last one) ends it. Use `sed` to extract exactly one — see the recipe in `PROMPT.md`.
-- **Active open-questions section**: search marker `## Open questions` (currently line **1322**).
+- **Active status checklist** (the `[ ]`/`[x]` list to scan): **lines 558–570**. Read these to pick the lowest-numbered unchecked iteration **N** (range: 15..27).
+- **Active iteration bodies start at**: **line 574**. Each iteration is delimited by a `## Iteration N — <title>` heading; the next `## Iteration ...` heading (or `## Open questions` for the last one) ends it. Use `sed` to extract exactly one — see the recipe in `PROMPT.md`.
+- **Active open-questions section**: search marker `## Open questions` (currently line **1047**).
 - **Frozen v0.2.0 reference**: lines 18–491. Do not modify unless explicitly asked.
 
 If the line numbers above look wrong, re-anchor with `grep -n "^## Status\|^## Iteration\|^## Open questions\|^# v" ITERATIONS.md` and fix this block in the same PR that caused the drift. `PROMPT.md` itself must keep working.
@@ -494,834 +494,572 @@ Each bug found gets a regression test in iterations 11 or 12 as appropriate.
 
 # v0.3.0 Iterations
 
-Ordered work plan to take CornerTasks from v0.2.0 (REST pull/push sync against AWS) to v0.3.0 (push-based WebSocket sync, a second self-hostable backend on Docker Compose + Postgres, consistent connection-status UI across macOS and web).
+Ordered work plan to take CornerTasks from v0.2.x (REST pull/push sync against
+a self-deployed AWS backend, mnemonic/`did:key` identity) to v0.3.0: a
+**real-world example of the First Person Project (FPP)** — per-device
+identities under a `did:webvh` account, DIDComm v2.1 sync through a blind
+mediator, a personal VTA on a Raspberry Pi at home, and AI agents with their
+own accountable DIDs.
+
+**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before any iteration.**
+It is the architectural contract for this release: FPP concept mapping, the
+discovery model (the account DID document is the *only* client configuration),
+key separation, the outbound-only networking constraints, and the upstream
+pins. When an iteration below and that document disagree, fix whichever is
+wrong first, in its own commit.
 
 ## Goals (v0.3.0)
 
-1. **Replace pull/REST sync with WebSocket sync** against an AWS API Gateway WebSocket API, designed for minimum AWS spend (pay-per-message, ARM Lambda, on-demand DynamoDB, connection TTL).
-2. **Both apps** (macOS + web) sync over WebSocket using the **same DID-Auth → bearer-JWT** flow that v0.2.0 introduced. No second auth scheme.
-3. **API versioning** so REST (`/v1/*`) and WebSocket (`/v2/*`) can coexist behind one `ApiUrl`. **Release CI defaults to removing the v1/REST resources**; an env var (`INCLUDE_REST_V1=true`) opts the deploy back into the parallel-deploy mode.
-4. **Capability test**: clients keep using the existing `ApiUrl` setting; the Settings "Test" button now probes whether the endpoint advertises WebSocket sync. If not, the client falls back to pull/REST and the UI surfaces a visible alert.
-5. **Connection-status indicator** in both apps: one small colored circle + short phrase, the same color/text vocabulary on both platforms, covering disabled, connecting, authenticating, healthy, fetching, pushing, waiting-for-next-pull (fallback), and failing.
-6. **Second backend**: `backend/docker/` — `docker-compose` (Postgres + a small Node service) that exposes the **identical** wire protocol as the AWS backend. The shared logic lives in a new headless package; AWS and Docker are thin concretions. The release pipeline does **not** publish a Docker image; the repo carries enough documentation for a developer to run it locally or adapt it for k8s.
+1. **FPP-native identity.** One `did:webvh` account hosted by a personal
+   `vta-service` (VTI); each client device is a PNM with its own `did:peer`
+   enrolled in a *CornerTasks context*; device revocation is per-device.
+2. **Replace REST pull/push with DIDComm v2.1 sync** through the Affinidi
+   mediator (fjall backend, no Redis): store-and-forward, offline pickup, no
+   central task storage anywhere.
+3. **Zero-URL client configuration.** Apps take exactly one setting — the
+   account DID. Mediator and VTA endpoints are discovered from DID-document
+   service entries. Moving infrastructure = rotating a service entry, never
+   touching a client.
+4. **Self-hosted on a Raspberry Pi behind Starlink CGNAT**, reachable via
+   Cloudflare Tunnel; everything under `deploy/` is `.env`-driven so anyone
+   can stand up the same stack on their own domain. VTA and mediator are
+   separable services reusable beyond CornerTasks.
+5. **Connection-status indicator** in both apps: one colored-circle + phrase
+   vocabulary, identical across macOS and web, driven by the DIDComm session
+   state machine.
+6. **Local AI-agent access (MCP)** with per-agent DIDs and narrow ACLs:
+   accountable, revocable delegation per White Paper Part 8. No cloud agent
+   endpoints.
+7. **Hard cut from AWS.** `backend/aws/` and the v1/v2 REST-era protocol are
+   archived at release. Local task data survives; accounts re-onboard.
 
 ## How to use this file (v0.3.0)
 
 Same rules as v0.2.0:
 
 - One PR per iteration, in order. Don't bundle two.
-- Re-read [`AGENTS.md`](AGENTS.md) before starting; v0.3.0 adds new conventions to it (see iteration 15).
-- Each iteration lists **Goal**, **Deliverables**, **Acceptance criteria**, **Out of scope**. If scope must grow, edit this file first and flag it in the PR.
-- Tick the iteration's checkbox below when its PR is merged. Update affected docs (README, AGENTS.md, `docs/sync-protocol.md`) in the same PR.
-- Every iteration that adds non-UI logic must add unit tests for that logic. UI iterations include at least manual smoke notes.
+- Re-read [`AGENTS.md`](AGENTS.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+  before starting.
+- Each iteration lists **Goal**, **Deliverables**, **Acceptance criteria**,
+  **Out of scope**. If scope must grow, edit this file first and flag it in
+  the PR.
+- Tick the iteration's checkbox below when its PR is merged. Update affected
+  docs (README, AGENTS.md, `docs/sync-protocol.md`, `docs/ARCHITECTURE.md`)
+  in the same PR.
+- Every iteration that adds non-UI logic must add unit tests for that logic.
+  UI iterations include at least manual smoke notes.
 - Don't introduce new dependencies unless a deliverable names them.
+- **Upstream code beats upstream docs.** VTI's READMEs can lag its code; when
+  an iteration depends on VTI or Affinidi-messaging behavior, verify against
+  the pinned source tree, not prose.
 
 ## Status
 
-- [ ] **15.** Extract headless backend core (`backend/core/`); refactor `backend/aws/` to consume it. Pure refactor.
-- [ ] **16.** WebSocket sync protocol spec — `docs/sync-protocol.md` §10 + API path versioning rules.
-- [ ] **17.** Capabilities endpoint + path versioning skeleton + release CI toggle (`INCLUDE_REST_V1`).
-- [ ] **18.** AWS WebSocket implementation (`/v2/ws`) — API Gateway WebSocket API + connections table + push/broadcast.
-- [ ] **19.** Smoke test (`sync-doctor`) exercises the full WS path; CI runs it on every backend deploy.
-- [ ] **20.** macOS sync engine v2 — WS client, capability detection, pull/REST fallback.
-- [ ] **21.** Web sync engine v2 — WS client, capability detection, pull/REST fallback.
-- [ ] **22.** Shared connection-status indicator — design doc + macOS + web implementations.
-- [ ] **23.** Settings UI v2 — consistent panel on macOS + web, fallback alert, capability "Test" wired to iteration 17's endpoint.
-- [ ] **24.** Docker Compose backend (`backend/docker/`, Postgres + Node) consuming `backend/core/`.
-- [ ] **25.** Self-hosting docs — `backend/docker/README.md` covers Compose, k8s adaptation, and AWS cost-tuning notes.
-- [ ] **26.** End-to-end verification across the matrix (AWS+WS, AWS+REST-fallback, Docker+WS, two clients on one mnemonic).
-- [ ] **27.** Release v0.3.0.
+- [ ] **15.** FPP walking skeleton — pin VTI, run VTA + mediator locally, exchange one DIDComm message between two peers. Go/no-go on the release risks.
+- [ ] **16.** Sync protocol v3 spec — sync events over DIDComm, enrollment, revocation (`docs/sync-protocol.md` §10).
+- [ ] **17.** `deploy/` stack — systemd-run native binaries (vta-service + mediator + cloudflared, no Docker), `.env`-driven, aarch64 cross-build, Raspberry Pi runbook.
+- [ ] **18.** Account bootstrap — account `did:webvh` with mediator service entry, CornerTasks context, device-enrollment (OOB/QR) tooling.
+- [ ] **19.** macOS PNM core — `vta-mobile-core` via UniFFI → Swift; device `did:peer` in Keychain; DIDComm session to the mediator.
+- [ ] **20.** Web PNM core — TypeScript DIDComm client with the same contract.
+- [ ] **21.** macOS sync engine v3 — events over DIDComm, pickup on start, LWW unchanged.
+- [ ] **22.** Web sync engine v3 — same, plus tab-visibility handling.
+- [ ] **23.** Connection-status indicator — design/ schema first, then macOS + web.
+- [ ] **24.** Settings v2 — account-DID-only configuration, device list + revoke, onboarding QR.
+- [ ] **25.** Local MCP server — task tools + per-agent DID enrollment and ACLs.
+- [ ] **26.** End-to-end on real hardware — full Pi runbook executed from scratch; two devices + one agent converge.
+- [ ] **27.** Release v0.3.0 — archive `backend/aws/`, version bumps, migration notes.
 
 ---
 
-## Iteration 15 — Extract headless backend core
+## Iteration 15 — FPP walking skeleton (spike, timeboxed)
 
-**Goal:** Move the protocol logic that is **independent of AWS** out of `backend/aws/` into a new package `backend/core/`, so iteration 24's Docker backend can reuse it. Pure refactor; no behavior change on the wire and no client changes.
-
-**Decision:** monorepo via npm workspaces (root `package.json` adds `"workspaces": ["backend/core", "backend/aws", "backend/docker", "apps/web"]`). No new build tool. Document in `backend/core/README.md`.
+**Goal:** Prove the load-bearing assumptions on real code before anything else
+is built, and pin the upstream we build on. This iteration produces running
+scripts and recorded decisions, not app code.
 
 **Deliverables:**
 
-### Package layout
+- `deploy/upstream.lock` (or equivalent recorded pin): the exact
+  `OpenVTC/verifiable-trust-infrastructure` commit and the
+  `affinidi-messaging-mediator` version it resolves, plus the Rust toolchain
+  version that builds them.
+- A `deploy/spike/` script (or Makefile target) that, on a dev machine:
+  1. Builds and starts `vta-service` (webvh feature) and
+     `affinidi-messaging-mediator` (**fjall backend — no Redis**) locally.
+  2. Creates an account `did:webvh` whose DID document carries a
+     `DIDCommMessaging` service entry referencing the mediator's DID
+     (the flow in `vta-service/src/did_webvh.rs`), and verifies
+     `curl …/did.jsonl` resolves.
+  3. Enrolls two peer DIDs and sends one authcrypted DIDComm message from
+     peer A, delivered to peer B via mediator **pickup** while B was offline
+     at send time.
+- Recorded go/no-go answers, appended to the **Open questions** section below:
+  - **Web client stack**: which TypeScript DIDComm v2 library (or WASM build
+    of the Rust core) will iteration 20 use? Name it, with a one-paragraph
+    justification and a spike snippet proving connect + authcrypt against the
+    local mediator.
+  - **fjall feature gap**: confirm nothing v0.3.0 needs is redis-backend-only
+    (check the mediator's `Cargo.toml` feature comments at the pinned
+    version).
+  - **aarch64**: confirm both services cross-compile for aarch64 (e.g. via
+    `cross` or `cargo-zigbuild`; record the working method for iteration 17).
+  - **Memory footprint**: measure idle + under-sync RSS of `vta-service` and
+    the mediator on the dev machine. The hardware target is a Pi Zero 2 W
+    (512 MB) running the binaries under systemd — no Docker — with a
+    ≤ 400 MB total-stack budget (see `docs/ARCHITECTURE.md`); record the
+    numbers and whether zram is needed.
+- `docs/ARCHITECTURE.md` amended with anything the spike proved wrong.
 
-```
-backend/
-├── core/                               (new — headless, no AWS or pg imports)
-│   ├── package.json                    name: "@cornertasks/core"
-│   ├── tsconfig.json
-│   ├── src/
-│   │   ├── protocol/                   pure types + zod schemas
-│   │   │   ├── event.ts                Event, EventPlaintext, Op
-│   │   │   ├── auth.ts                 ChallengeRequest/Response, TokenRequest/Response
-│   │   │   ├── ws.ts                   (placeholder; populated in iter 16)
-│   │   │   └── errors.ts               ErrorCode enum + HTTP status mapping
-│   │   ├── auth/
-│   │   │   ├── didKey.ts               moved from backend/aws/src/lib/did.ts
-│   │   │   ├── didJwt.ts               DID-JWT verification (was inline in handlers/auth/token.ts)
-│   │   │   ├── bearer.ts               bearer mint + verify (was lib/jwt.ts)
-│   │   │   └── challenge.ts            challenge gen + replay-check policy (storage-agnostic)
-│   │   ├── sync/
-│   │   │   ├── validate.ts             validateEvent(event): "ok" | "invalid"
-│   │   │   ├── conflict.ts             isStale(stored, incoming) — LWW + eventId tiebreak
-│   │   │   └── archiveCutoff.ts        moved from lib/archive-retention.ts
-│   │   └── ports/                      interfaces a concretion must implement
-│   │       ├── EventStore.ts           putEvent, listEventsSince, getCurrentTaskRow
-│   │       ├── ChallengeStore.ts       putChallenge, consumeChallenge (atomic), expireBatch
-│   │       ├── ConnectionRegistry.ts   (populated in iter 16 — leave the file with a TODO type)
-│   │       ├── SigningKeyProvider.ts   getPrivateKey(), getPublicKey()
-│   │       └── Clock.ts                now(): number (epoch ms) — for testability
-│   └── tests/                          vitest, runs against fakes
-│       ├── didKey.test.ts
-│       ├── didJwt.test.ts
-│       ├── bearer.test.ts
-│       ├── conflict.test.ts
-│       ├── archiveCutoff.test.ts
-│       └── fakes/                      InMemoryEventStore, InMemoryChallengeStore, FakeClock
-│
-└── aws/
-    ├── package.json                    depends on "@cornertasks/core": "*"
-    └── src/
-        ├── lib/
-        │   ├── dynamoEventStore.ts     implements ports/EventStore against DynamoDB (was dynamo-store.ts)
-        │   ├── dynamoChallengeStore.ts implements ports/ChallengeStore (split from db.ts)
-        │   ├── ssmSigningKey.ts        implements ports/SigningKeyProvider (was signing-key.ts)
-        │   ├── apiUrl.ts               unchanged
-        │   └── response.ts             unchanged
-        └── handlers/                   handlers become orchestration only — they wire ports to core
-            ├── push.ts                 imports core.validate, core.isStale, dynamoEventStore
-            ├── pull.ts                 imports core archiveCutoff filter
-            └── auth/
-                ├── challenge.ts        imports core.challenge.create, dynamoChallengeStore
-                └── token.ts            imports core.auth.didJwt.verify, core.auth.bearer.mint
-```
+**Acceptance criteria:** one command brings up the local skeleton and the
+offline-pickup message round-trip passes; the three go/no-go answers are
+written down; the pin is committed. If the web-client answer is "months of
+work", stop and re-plan iterations 20/22 (macOS-first fallback) before
+proceeding.
 
-### Conventions for `backend/core/`
-
-- **Zero AWS, Postgres, or HTTP imports.** Anything platform-specific is behind a port. CI verifies this by grepping the compiled `core/dist/` for the strings `@aws-sdk`, `aws-lambda`, `pg`, `express`, `ws` — fails if any appear.
-- **No I/O in the public API.** Functions take inputs and ports; they don't open sockets, hit databases, or read env vars.
-- **Vitest, not Jest.** The Docker backend (iteration 24) will use vitest; standardize core on it so the same test fixtures run in both concretions. The AWS handler tests keep using jest — they live in `backend/aws/tests/` and are unchanged.
-- **One package, no submodule exports.** Importers do `import { validateEvent, isStale, mintBearer } from "@cornertasks/core"`. Avoid `@cornertasks/core/sync/conflict` deep imports — barrel in `src/index.ts`.
-
-### Refactor steps (target order inside the PR)
-
-1. Add the root `package.json` workspaces field; `cd backend/aws && npm install` should still work afterward.
-2. Scaffold `backend/core/` with `package.json`, `tsconfig.json`, `vitest.config.ts`, empty `src/index.ts`.
-3. Move `lib/did.ts`, `lib/jwt.ts`, `lib/archive-retention.ts`, the type-only pieces of `types/api.ts`, and the validation helpers from `handlers/push.ts` into `backend/core/src/`. Adjust imports in the AWS handlers to use `@cornertasks/core`.
-4. Extract the storage code in `lib/dynamo-store.ts` and `lib/db.ts` behind the `EventStore` and `ChallengeStore` ports. Concrete implementations stay in `backend/aws/src/lib/`.
-5. Run `backend/aws/`'s existing jest suite and `npm run smoke-test` against a dev stack — both must remain green without source changes to the tests.
-
-### Documentation
-
-- Add `backend/core/README.md` (≤ 150 lines) explaining: this is the headless protocol package, the port interfaces a concretion must implement, the no-platform-imports rule, and a note pointing at `backend/aws/` and (future) `backend/docker/` as concrete consumers.
-- Update `AGENTS.md` repository layout section to show `backend/core/` and the new `backend/docker/` placeholder (with a forward-pointer to iteration 24).
-
-**Acceptance criteria:**
-
-- `npm install` from repo root resolves all three workspaces.
-- `npm run build -w @cornertasks/core` and `npm test -w @cornertasks/core` both pass.
-- `cd backend/aws && npm run lint && npm test && npm run build` all pass.
-- `sam deploy` against a dev stack succeeds; existing `sync-doctor` smoke test stays green.
-- `git grep -E "(@aws-sdk|aws-lambda|^import pg|express|^import { WebSocket )" backend/core/src` returns nothing.
-- No change to the wire protocol or to any client (web/macOS) code.
-
-**Out of scope:** WebSocket support, capabilities endpoint, Docker backend, client changes.
+**Out of scope:** Raspberry Pi, Cloudflare, any app code, any protocol spec.
 
 ---
 
-## Iteration 16 — WebSocket sync protocol spec
+## Iteration 16 — Sync protocol v3 spec
 
-**Goal:** Specify the v2 (WebSocket) wire protocol **before** anyone implements it. Extends `docs/sync-protocol.md`. v1 (pull/push REST) text stays in place and is marked legacy.
+**Goal:** Specify CornerTasks sync as DIDComm v2.1 messages, precisely enough
+that iterations 19–22 implement from the spec without re-deciding anything.
+Added as **§10** of `docs/sync-protocol.md`; §5–§8 (REST era) are marked
+*superseded, removed at v0.3.0 release*.
 
-**Decision:** API Gateway WebSocket-style (one URL per stage, frames JSON, no MQTT or GraphQL subscriptions). One persistent connection per client. Bearer JWT obtained over HTTPS (existing `/auth/*` endpoints) and presented in the connection URL's query string. Server pushes events as they arrive; no polling.
+**Deliverables — `docs/sync-protocol.md` §10:**
 
-**Deliverables — add to `docs/sync-protocol.md`:**
+- **Message types** (DIDComm `type` URIs under a CornerTasks namespace):
+  task sync event (create/update/archive/delete — reusing the v0.2.0 event
+  payload shape and field names where they still fit), full-state offer +
+  request (new-device bootstrap from a peer), device-enrolled and
+  device-revoked notifications.
+- **Addressing:** every event is authcrypted from the sending device DID to
+  each enrolled peer DID individually, routed via the account's mediator.
+  Define how a device learns the current peer-DID set (context membership via
+  the VTA) and how often it refreshes it.
+- **Ordering & conflicts:** last-writer-wins by event `updatedAt`, unchanged.
+  Define the tie-breaker (device DID lexicographic) and idempotent re-delivery
+  handling (mediator pickup may re-deliver; events carry the v0.2.0 `eventId`).
+- **Archive cutoff:** 60 days, unchanged; applies to both send and apply.
+- **Enrollment & revocation:** the out-of-band invitation flow (QR), approval
+  by an existing device, the VTA context ACL update, and what a revoked device
+  can still see (nothing new after revocation; define the crypto boundary
+  honestly — messages already delivered are already readable).
+- **Discovery:** normative statement that the account DID document is the only
+  client input; resolution chain per `docs/ARCHITECTURE.md`.
+- **Threat model table** updated for the new topology (mediator, VTA, ingress,
+  device compromise).
 
-### §10 API versioning and coexistence
+**Acceptance criteria:** two independent readers (macOS and web implementers —
+in practice, the agents executing iterations 19–22) can implement from §10
+alone; every message type has a full JSON example; `docs/e2e-test.md` gains a
+protocol-level walkthrough. Spec reviewed against the *pinned* VTI/mediator
+code, not upstream docs.
 
-- **Authentication endpoints** (challenge + token) are **un-versioned** because they survive across sync-protocol revisions:
-  - `POST /auth/challenge`
-  - `POST /auth/token`
-  - The existing `POST /v1/auth/challenge` and `/v1/auth/token` paths are retained as **aliases** for one minor version (until v0.4.0) so existing v0.2.x clients keep working. Document this in the deprecation table.
-- **Sync endpoints** are versioned by the `/vN/` prefix:
-  - `v1` = REST pull/push (the existing `POST /v1/sync/push` and `GET /v1/sync/pull`).
-  - `v2` = WebSocket (`GET wss://<host>/v2/ws?token=<bearer>`).
-- **Capability discovery**: `GET /capabilities` → `{ version, protocols, recommended }`. Defined in iteration 17.
-- **Coexistence rule**: a deploy MAY expose v1 + v2 simultaneously. Clients always prefer the highest version listed in `protocols`.
-
-### §11 WebSocket sync (v2)
-
-#### §11.1 Connection lifecycle
-
-- Client opens `wss://<host>/v2/ws?token=<bearer>`. Bearer JWT is acquired exactly as in §8 (DID-JWT → token). Tokens older than 60s of `exp` MUST be refreshed before opening the socket.
-- API Gateway calls a **Lambda authorizer** on `$connect` that verifies the bearer (same code path as the REST middleware). On success the authorizer returns a policy + a context containing `accountDid` and the bearer's `jti`/`exp`.
-- After `$connect` the server is free to push messages immediately. The server sends `{ "type": "ready", "serverTime": <iso8601>, "sessionId": "<uuid>" }` as the first frame.
-- Client sends `{ "type": "subscribe", "since": "<iso8601 | null>" }` to start receiving events newer than `since`. Server replies with a stream of `event` frames followed by `{ "type": "subscribed", "throughTime": "<iso8601>" }`. `since` may be null on first sync (full backlog up to the 60-day archive cutoff).
-- After `subscribed`, the server pushes `event` frames in real time whenever any device on the account publishes (see §11.3).
-- **Token expiry**: when the bearer's `exp` is within 60s, the server sends `{ "type": "token_expiring", "in": <seconds> }`. The client refreshes the bearer over HTTPS and sends `{ "type": "reauth", "bearer": "<token>" }`. If the client does nothing, the server closes the socket with WebSocket close code **4401** and reason `token_expired`. Clients reconnect with the new bearer.
-- **Idle disconnect**: API Gateway closes idle WS connections after 10 minutes. Server-side keepalive: `{ "type": "ping" }` every 4 minutes; client replies with `{ "type": "pong" }`. If the client misses two pings, the server closes with **1011** `idle`.
-
-#### §11.2 Frame catalog
-
-Server → client:
-- `ready`, `subscribed`, `event`, `pushAck`, `token_expiring`, `ping`, `error`.
-
-Client → server:
-- `subscribe`, `push`, `reauth`, `pong`.
-
-Every frame is `{ type: "<name>", ...payload }`. Unknown frames are answered with `error { code: "unknown_frame" }` and the socket stays open.
-
-#### §11.3 Push semantics
-
-- Client sends `{ "type": "push", "events": Event[] }`. Same `Event` shape as §4.
-- Server validates each event (auth context's `accountDid` MUST equal the event's `accountDid` — close with **4403** `did_mismatch` otherwise), runs the same conflict rule as v1 push (newer `updatedAt` wins; tie-break by `eventId`), and persists.
-- Server replies with `{ "type": "pushAck", "acceptedIds": string[], "rejected": { eventId, reason }[] }`. Reasons: `"stale"` | `"invalid"`.
-- After persistence, the server **broadcasts** each accepted event to all currently-connected sockets for the same `accountDid` **except the originating socket** (the originator already has it locally; saves bandwidth + cost). Broadcast frame: `{ "type": "event", "event": Event, "source": "push" }`.
-
-#### §11.4 Server-initiated event delivery
-
-- Source = `"push"` when forwarded from another device's push.
-- Source = `"backfill"` when delivered as part of the initial `subscribe` catch-up.
-- Clients dedupe by `eventId` (they may receive the same event over WS and over a later REST fallback — the engine MUST be idempotent).
-
-#### §11.5 Errors
-
-| close code | meaning              | client action            |
-|------------|----------------------|--------------------------|
-| 4401       | `token_expired`      | refresh bearer, reconnect|
-| 4401       | `bad_token`          | refresh bearer, reconnect|
-| 4403       | `did_mismatch`       | log + bug, do not retry  |
-| 4400       | `invalid_frame`      | log + bug                |
-| 1011       | `idle`               | reconnect immediately    |
-| 1013       | `try_again_later`    | exponential backoff      |
-
-Non-fatal error frames keep the socket open:
-
-```json
-{ "type": "error", "code": "unknown_frame" | "rate_limited", "message": "<human readable>" }
-```
-
-#### §11.6 Backpressure and rate limiting
-
-- Server-side soft cap: 100 events per `push` frame, 10 `push` frames per second per connection. Excess returns `error { code: "rate_limited" }` and **drops** the offending frame (clients resend on next tick).
-- Client-side: events are still queued in `sync_queue` (macOS) / `syncQueue` (web). The WS engine drains the queue exactly like the REST engine drained it — only the transport differs.
-
-#### §11.7 Reconnect strategy (normative, both clients)
-
-- Initial backoff 1 s, doubling to a cap of 30 s, with ±25 % jitter.
-- On a clean close (1000) for any reason, reset backoff.
-- On 4401, refresh the bearer *first*, then reconnect with no backoff (treat as a clean re-handshake).
-- On three consecutive failures, the client SHOULD probe `/capabilities` once before continuing — the server may have rolled back to REST-only.
-
-#### §11.8 Cost contract (informative, AWS)
-
-- API Gateway WebSocket charges per million **messages** and per million **connection-minutes**. The design above keeps both small:
-  - One persistent socket per device (vs. one HTTP request per pull every 60s in v1 = 1,440/day/device).
-  - Only event-bearing frames are billed; ping/pong are billed but small.
-  - Idle disconnect at 10 min is allowed to fire and the client reconnects (10-min connections are cheaper than 1-h depending on usage patterns; this is a contributor-visible choice documented here).
-
-### §12 Deprecation table
-
-| Path / behavior              | Introduced | Status in v0.3.0     | Removed in |
-|------------------------------|------------|----------------------|------------|
-| `POST /v1/sync/push`         | v0.2.0     | optional, default off| v0.4.0     |
-| `GET /v1/sync/pull`          | v0.2.0     | optional, default off| v0.4.0     |
-| `POST /v1/auth/challenge`    | v0.2.0     | alias of `/auth/...` | v0.4.0     |
-| `POST /v1/auth/token`        | v0.2.0     | alias of `/auth/...` | v0.4.0     |
-| `GET /v2/ws`                 | v0.3.0     | required             | —          |
-| `GET /capabilities`          | v0.3.0     | required             | —          |
-
-### §13 Worked examples
-
-Add curl + `wscat` examples for: (a) acquiring a bearer; (b) opening the socket; (c) `subscribe`; (d) `push`; (e) receiving a broadcast from another simulated device; (f) `token_expiring` → `reauth`.
-
-### Cross-references
-
-- Update `AGENTS.md` "Sync model (v0.2.0)" section to "Sync model (v0.3.0)" and replace the pull-cursor description with §11.
-- Update `README.md` privacy section: clarify that the bearer JWT, not the mnemonic, is what authenticates the socket.
-
-**Acceptance criteria:** the spec is complete, internally consistent, references back to §4 (Event shape) and §8 (auth), and is reviewable. Iteration 18 implements §11 byte-for-byte.
-
-**Out of scope:** code.
+**Out of scope:** implementation; backup formats; VTC/shared lists.
 
 ---
 
-## Iteration 17 — Capabilities endpoint + path versioning skeleton + release CI toggle
+## Iteration 17 — `deploy/` stack (systemd binaries, .env, Raspberry Pi)
 
-**Goal:** Land the **structural** pieces both clients need from the backend before WebSocket support is implemented: the capabilities advertisement, the new un-versioned auth aliases, and the SAM template conditional that lets the deploy include or omit the v1 REST resources.
-
-This iteration is implementation-only on the backend. Clients still hit `/v1/*` exactly as today.
+**Goal:** Anyone with a domain and a Raspberry Pi can stand up the VTA +
+mediator + tunnel by copying cross-compiled binaries and running one install
+script with a filled-in `.env`. **No Docker on the Pi** — the three services
+run as native binaries under systemd (lowest RAM overhead on the 512 MB
+target, one less moving part). This is the "buy a Pi and it works"
+deliverable.
 
 **Deliverables:**
 
-### `GET /capabilities`
+- `deploy/systemd/` unit files for three services: `ct-vta` (vta-service,
+  webvh feature), `ct-mediator` (affinidi-messaging-mediator, fjall backend),
+  `cloudflared` (Cloudflare Tunnel; use the vendor's own unit if it fits).
+  Units get `Restart=on-failure`, are `enabled` for boot, load their config
+  from an `EnvironmentFile`, and run as a dedicated non-root user. VTA and
+  mediator stay independent — separate units, separate data dirs, no hidden
+  coupling — so either can later move to other hardware by editing DID
+  service entries only.
+- `deploy/.env.example` documenting every variable: domain, DID path layout
+  (root vs pathful — default pathful, e.g. `/<name>/vta/did.jsonl`, so one
+  domain hosts many identities), ports, data dirs, secrets backend, tunnel
+  credentials, upstream pin. **No secrets, no personal domains committed.**
+- `deploy/build.sh` — cross-compiles both Rust services for `aarch64` (and
+  `x86_64` for CI/dev) from the pinned VTI commit, e.g. via `cross` or
+  `cargo-zigbuild`; the method is recorded in the script. Rust is never
+  compiled on the Pi.
+- `deploy/install.sh` — idempotent: copies binaries + units onto the Pi,
+  creates the service user and data dirs, renders `EnvironmentFile`s from
+  `.env`, `systemctl enable --now`s the units.
+- `deploy/dev.sh` — runs the same two binaries (x86_64/host build) in the
+  foreground on a dev machine with throwaway data dirs; this **dev stack** is
+  what iterations 18–22 and CI test against.
+- `deploy/README.md` runbook, written to be executed by a person from zero:
+  flash Raspberry Pi OS Lite (64-bit) → clone → fill `.env` → create the
+  Cloudflare Tunnel (step-by-step incl. DNS record) → run `install.sh` →
+  verify `https://<domain>/…/did.jsonl` from an external network. Include an
+  "ingress alternatives" section (Tailscale Funnel / VPS+WireGuard / IPv6)
+  noting only `deploy/` changes, clients never do.
+- CI job that boots the dev stack (x86_64 binaries, no Docker) and curls the
+  mediator health endpoint + a did.jsonl.
 
-- New Lambda `backend/aws/src/handlers/capabilities.ts`. Returns:
+**Acceptance criteria:** fresh clone + valid `.env` on an x86_64 host passes
+the CI checks locally; the runbook contains every command a Pi setup needs
+(actual-hardware execution is iteration 26). `make design-validate` untouched.
 
-```json
-{
-  "version": "0.3.0",
-  "protocols": ["rest-v1", "ws-v2"],
-  "recommended": "ws-v2",
-  "endpoints": {
-    "auth": {
-      "challenge": "/auth/challenge",
-      "token": "/auth/token"
-    },
-    "rest": {
-      "push": "/v1/sync/push",
-      "pull": "/v1/sync/pull"
-    },
-    "websocket": "wss://<host>/v2/ws"
-  },
-  "serverTime": "<iso8601>"
-}
-```
-
-- If the deploy was built with `INCLUDE_REST_V1=false`, `protocols` MUST NOT contain `"rest-v1"` and `endpoints.rest` MUST be absent. Same for `ws-v2` until iteration 18 lands (iteration 17 ships `["rest-v1"]` only and adds `"ws-v2"` in iteration 18).
-- No auth required. Clients call this before signing in.
-- Cache: `Cache-Control: max-age=60`. CloudFront/CDN at the gateway will bill less for repeated probes.
-
-### Un-versioned auth aliases
-
-- Add `POST /auth/challenge` and `POST /auth/token` to `template.yaml`, both pointing at the same Lambdas as `/v1/auth/...`. Existing `/v1/auth/...` routes remain (we never break in-flight v0.2.x clients).
-- No code change to the handlers themselves — same handler ARN serves both paths.
-
-### SAM template conditional `INCLUDE_REST_V1`
-
-- Parameter:
-
-```yaml
-Parameters:
-  IncludeRestV1:
-    Type: String
-    AllowedValues: [true, false]
-    Default: false
-    Description: |
-      When true, deploys POST /v1/sync/push and GET /v1/sync/pull alongside the v2 WebSocket API.
-      When false (default for v0.3.0+), only auth + capabilities + v2/ws are exposed.
-
-Conditions:
-  WithRestV1: !Equals [!Ref IncludeRestV1, "true"]
-```
-
-- Wrap the v1 sync routes, integrations, and their Lambda functions in `!If [WithRestV1, <resource>, !Ref AWS::NoValue]`. The handlers themselves remain in `src/handlers/push.ts` and `pull.ts` (they're cheap to ship; we just don't expose them).
-- Surfaced through `npm run deploy:dev` / `npm run deploy:prod` via SAM `--parameter-overrides IncludeRestV1=$INCLUDE_REST_V1`. The deploy scripts read the env var and default to `false`.
-
-### Release CI
-
-- `.github/workflows/release.yml` (the maintainer-side workflow, even if it only builds the DMG today) is unchanged. The deploy template in `.github/workflows/deploy.yml.template` (added per iteration 3 BYO-AWS docs) gains an `inputs.include_rest_v1` boolean (default `false`) that forwards into the deploy command.
-- `backend/aws/README.md` gets a new section "Running v1 (REST) and v2 (WebSocket) in parallel": one paragraph explaining when you'd want this (rolling old clients off; debugging) and the exact `INCLUDE_REST_V1=true npm run deploy:prod` invocation.
-
-### Capabilities client helper (`backend/core/`)
-
-- `backend/core/src/protocol/capabilities.ts` — zod schema for the response + a `pickPreferred(caps)` helper that returns `"ws-v2" | "rest-v1" | null`. Reused by both clients in iterations 20–21.
-
-### Tests
-
-- Handler unit tests for `capabilities` covering both `INCLUDE_REST_V1=true` and `=false` (drive via env var; the handler reads it once at cold start).
-- SAM template sanity: `sam validate` passes for both parameter values.
-- Manual: `INCLUDE_REST_V1=false npm run deploy:dev` produces a stack where `curl https://<host>/v1/sync/pull` returns `404` (no route) while `/capabilities` is healthy. `INCLUDE_REST_V1=true npm run deploy:dev` brings both back.
-
-**Acceptance criteria:** unit tests pass; both deploy modes succeed; capabilities response shape matches the spec from iteration 16; existing `sync-doctor` smoke test (still v1-based at this point) passes only when `INCLUDE_REST_V1=true` and is skipped otherwise via a `CT_PROTOCOL=rest-v1` flag that iteration 19 will generalize.
-
-**Out of scope:** WebSocket handlers, client capability detection, removing v1 handler code from the repo.
+**Out of scope:** account/context creation (iteration 18); TEE/Nitro; Redis;
+Docker/compose packaging (fine to add later for non-Pi hosts, not in
+v0.3.0); publishing prebuilt binaries (documented as "build your own").
 
 ---
 
-## Iteration 18 — AWS WebSocket implementation
+## Iteration 18 — Account bootstrap: DID, context, enrollment tooling
 
-**Goal:** Implement §11 of the protocol on AWS. After this iteration, a hand-crafted `wscat` session can open `wss://<host>/v2/ws?token=...`, subscribe, push, and observe a broadcast from a second simulated connection.
-
-**Decision:** API Gateway WebSocket API (not AppSync, not IoT Core). One DynamoDB table for connections (`ws_connections`) with TTL. Lambda authorizer reuses the bearer-verify code in `backend/core/`. **No DynamoDB Streams** — broadcast happens inside the `push` handler by querying the connections table directly. Keeps the architecture small and the per-message cost predictable.
+**Goal:** Scripted, repeatable creation of the account identity and the
+CornerTasks context on a running `deploy/` stack, plus the tooling that
+enrolls and revokes device/agent DIDs. CLI-level only — apps come later.
 
 **Deliverables:**
 
-### Infra (`backend/aws/template.yaml`)
+- `deploy/bootstrap/` scripts (wrapping `vta-service` setup flows and/or
+  `pnm-cli` from the pinned VTI tree — verify against code, not READMEs):
+  - `create-account`: creates the account `did:webvh` on the VTA with a
+    `DIDCommMessaging` service entry pointing at the mediator's DID; prints
+    the account DID. Idempotence: re-running against an initialized data dir
+    is a hard error, not a wipe.
+  - `create-context`: creates the *CornerTasks* context with a member-set ACL
+    (device DIDs + agent DIDs with role labels).
+  - `enroll-device` / `revoke-device`: issues a DIDComm out-of-band invitation
+    (QR-encodable payload) for a new device; revocation removes the DID from
+    the context and rotates the peer set. `list-members` prints the context
+    membership.
+- Unit/integration tests (against the dev stack (`deploy/dev.sh`) in CI): create → enroll
+  two synthetic devices → exchange a §10 sync event → revoke one → verify the
+  revoked DID stops receiving new events.
+- `docs/sync-protocol.md` §10 corrections if the implementation contradicts
+  the spec (spec first, then code — same rule as always).
 
-- `AWS::ApiGatewayV2::Api` of type `WEBSOCKET` named `CornerTasksWS`, route selection expression `$request.body.type`.
-- Routes:
-  - `$connect` → authorizer Lambda + integration Lambda (`onConnect`).
-  - `$disconnect` → `onDisconnect`.
-  - `$default` → `onMessage` (routes by `type` in JS, simpler than route-per-frame).
-- Authorizer: `AWS::ApiGatewayV2::Authorizer` of type `REQUEST`, `IdentitySource: "route.request.querystring.token"`, attached only to `$connect`.
-- New `ws_connections` DynamoDB table:
-  - `PK = ACCOUNT#<accountDid>`, `SK = CONN#<connectionId>`.
-  - Attributes: `connectedAt`, `bearerExp`, `sessionId`, `lastPingAt`, optional `ttl` (epoch seconds; set to `bearerExp + 300` to clean up if `$disconnect` is missed).
-  - GSI on `(PK, connectedAt)` for fan-out queries.
-  - On-demand billing (we expect ≤ a few connections per account; provisioned capacity would waste money).
-- The new API Gateway stage publishes `WsUrl` as a stack output. Capabilities endpoint reads it from env (`WS_ENDPOINT`).
-- Existing HTTP API for `/auth/*`, `/capabilities`, and (conditionally) `/v1/*` is unchanged.
+**Acceptance criteria:** from a fresh dev stack, three commands produce a
+resolvable account DID, a context, and a scannable enrollment QR payload; the
+CI test above is green.
 
-### Handlers (`backend/aws/src/handlers/ws/`)
-
-```
-ws/
-├── authorizer.ts   # verifies bearer JWT via @cornertasks/core, returns IAM Allow + context
-├── onConnect.ts    # persists row to ws_connections, posts "ready" frame back
-├── onDisconnect.ts # deletes row from ws_connections
-└── onMessage.ts    # routes by msg.type → subscribe / push / reauth / pong
-```
-
-- `onMessage` uses the `ApiGatewayManagementApi` client to send frames back to the originating connection. Endpoint URL is `https://<api-id>.execute-api.<region>.amazonaws.com/<stage>` and is provided to the Lambda via env var.
-- `push` flow:
-  1. Validate every event via `@cornertasks/core/validateEvent`.
-  2. Check `accountDid` against the authorizer's context (`event.requestContext.authorizer.accountDid`). Mismatch → close with 4403.
-  3. Run conflict resolution via `@cornertasks/core/isStale`. Persist accepted events through the existing `dynamoEventStore`.
-  4. Send `pushAck` to the originator.
-  5. Query `ws_connections` for `PK = ACCOUNT#<did>`, exclude the originator's `connectionId`, and `PostToConnection` each accepted event as a `{ type: "event", event, source: "push" }` frame. Each failure with `GoneException` (410) triggers a `DeleteItem` cleanup of that connection row.
-- `subscribe` flow:
-  1. Read `since` (nullable).
-  2. Stream events from `dynamoEventStore.listEventsSince(accountDid, since)` in pages of ≤ 100, sending each as `{ type: "event", event, source: "backfill" }`.
-  3. Conclude with `{ type: "subscribed", throughTime: <serverTime> }`.
-- `reauth` flow: re-verify the new bearer (uses authorizer code path directly), update `bearerExp` on the connection row. Reject and close 4401 if invalid.
-- Keepalive: a CloudWatch Events rule every 4 minutes invokes a small `pinger.ts` Lambda that scans `ws_connections`, sends `ping` to each, and deletes any with `lastPingAt` older than 9 minutes (two missed cycles).
-
-### Permissions
-
-- The Lambda execution role gains:
-  - `execute-api:ManageConnections` on the new WS API ARN.
-  - `dynamodb:Query/PutItem/DeleteItem` on `ws_connections` and its GSI.
-- No new wildcard grants.
-
-### Capabilities endpoint
-
-- Once this iteration lands, `protocols` becomes `["ws-v2"]` by default (and `["ws-v2", "rest-v1"]` when `INCLUDE_REST_V1=true`). `recommended` stays `"ws-v2"`.
-
-### Tests
-
-- Unit tests against the `@aws-sdk/client-apigatewaymanagementapi` mock for `onMessage.push` covering: accepted-only, stale-rejected, did-mismatch, broadcast-skips-originator, broadcast-cleans-up-gone-connections.
-- Integration test against `dynamodb-local` + a tiny in-process WebSocket harness (the handlers are pure — call them with synthetic `event` objects) covering subscribe → push → broadcast.
-- Cost smoke test: count `ApiGatewayManagementApi.postToConnection` invocations in a unit test that simulates a 3-device account pushing 100 events — assert each event triggers exactly 2 broadcasts (= devices − 1).
-
-### Documentation
-
-- `backend/aws/README.md` gains a "WebSocket sync" section pointing at `docs/sync-protocol.md` §11 and noting the cost-shape.
-- `AGENTS.md` "Sync model" section is updated to point at v2.
-
-**Acceptance criteria:**
-
-- `npm test` passes.
-- Deploy to dev, then `wscat -c "wss://<host>/v2/ws?token=$BEARER"` followed by manual `subscribe` and `push` frames: server emits `ready`, streams events, broadcasts to a second `wscat` session, and closes with 4401 when the bearer expires.
-- `aws dynamodb scan --table-name ws_connections` shows rows created on `$connect` and deleted on `$disconnect`.
-
-**Out of scope:** client implementations, smoke-test automation, fallback handling.
+**Out of scope:** app UI for any of this (iteration 24); agent ACL specifics
+beyond a role label (iteration 25).
 
 ---
 
-## Iteration 19 — Smoke-test automation for WebSocket
+## Iteration 19 — macOS PNM core
 
-**Goal:** Bring `backend/aws/scripts/sync-doctor.ts` up to v0.3.0. After this, CI red/green tracks the real wire protocol on a deployed stack.
+**Goal:** The macOS app gains an FPP identity/messaging core: a device
+`did:peer` in the Keychain, DID resolution, and an authenticated DIDComm
+session to the mediator discovered from the account DID. No sync-engine
+changes yet.
 
 **Deliverables:**
 
-- Rename `scripts/sync-doctor.ts` → `scripts/sync-doctor.ts` (same file, additive change). Add a CLI flag `--protocol <auto|ws-v2|rest-v1>`. `auto` (default) probes `/capabilities` and uses `recommended`.
-- Add a `ws-v2` codepath that uses the `ws` npm package: connect, subscribe, push a synthetic encrypted event from `CT_MNEMONIC`, wait for `pushAck`, open a *second* socket on the same account, observe the broadcast, close cleanly.
-- Add an explicit timeout (default 30 s) so a hung connection fails CI rather than stalling.
-- Update `.github/workflows/smoke-test.yml` to run sync-doctor in both modes when `INCLUDE_REST_V1=true` (loops over `--protocol ws-v2` and `--protocol rest-v1`) and only `ws-v2` otherwise.
-- The doctor MUST be the same script the developer runs locally; don't fork CI-only logic.
+- `vta-mobile-core` (from the pinned VTI commit) built as an xcframework via
+  UniFFI and vendored under `apps/macos/` (build scripted in `build.sh`;
+  document the toolchain in `apps/macos/README` notes). If `vta-mobile-core`
+  proves unusable for macOS targets, fall back to bridging the same Rust
+  crates directly — record the decision in this file first.
+- New `Sources/CornerTasks/FPP/` module: device-key creation (`did:peer`,
+  private key as `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, on-demand
+  Keychain access per the v0.2.0 rules), account-DID resolution
+  (did.jsonl fetch + chain verification via the Rust core), mediator session
+  (connect, authcrypt send, pickup receive), enrollment handshake
+  (consume an iteration-18 OOB invitation).
+- The old `Crypto/` mnemonic path stays untouched and functional in this
+  iteration (removal is iteration 21/27).
+- Unit tests: key lifecycle, resolution against fixture did.jsonl logs
+  (valid, tampered, wrong-SCID), session state machine against a stubbed
+  mediator; integration test against the dev stack where CI allows.
 
-**Acceptance criteria:** the workflow turns red if any of (a) `/capabilities` lies about the deployed protocols, (b) push/broadcast diverges from §11, or (c) auth headers regress. Manual `CT_API_URL=... CT_MNEMONIC='...' npm run smoke-test --workspace backend/aws` produces a green run against a fresh dev deploy.
+**Acceptance criteria:** `swift test` green; a debug harness in the app
+connects to a local dev stack, enrolls via QR payload, and round-trips a
+raw DIDComm message. `RevealGate` semantics preserved for any secret display.
 
-**Out of scope:** client changes; advanced multi-account tests.
-
----
-
-## Iteration 20 — macOS sync engine v2
-
-**Goal:** macOS uses WebSockets when the server advertises `ws-v2`, falls back to REST polling when only `rest-v1` is advertised (or when the WS dial fails persistently), and surfaces both states cleanly to the UI through the connection-status indicator (iteration 22) and the settings panel (iteration 23).
-
-**Decision:** Use `URLSessionWebSocketTask` (built-in, no dep). Keep the existing `Sync/` files; add `Sync/Transport/` with one protocol and two concretions.
-
-**Deliverables (`apps/macos/Sources/CornerTasks/Sync/`):**
-
-### New types
-
-- `Sync/Transport/SyncTransport.swift` — protocol:
-
-```swift
-protocol SyncTransport {
-    func start() async throws
-    func stop() async
-    func push(_ events: [SyncEvent]) async throws -> PushResult
-    /// Server-pushed events or — in REST mode — events fetched by the next pull.
-    var inbound: AsyncStream<SyncEvent> { get }
-    /// Stream of opaque status updates the UI subscribes to.
-    var status: AsyncStream<ConnectionStatus> { get }
-}
-```
-
-- `Sync/Transport/WebSocketTransport.swift` — opens `wss://<host>/v2/ws?token=<bearer>`, sends `subscribe`, routes inbound frames, handles `token_expiring` → `reauth`, implements §11.7 reconnect strategy. Pulls bearers from the existing `AuthSession`.
-- `Sync/Transport/RestTransport.swift` — wraps the existing 10 min / 1 min push/pull engine and exposes it through the new protocol. Renamed from the current implementation, no logic change.
-- `Sync/Transport/TransportSelector.swift` — calls `GET /capabilities` on engine start and whenever the user hits the "Test" button. Returns `WebSocketTransport` if `protocols` contains `"ws-v2"`, otherwise `RestTransport`. Emits a `ConnectionStatus.fallback(reason:)` event so the UI can show the alert.
-
-### Engine wiring
-
-- `SyncEngine` becomes a thin coordinator: it owns whichever transport `TransportSelector` returned, drains its `inbound` into the local store via `applyRemoteUpsert/Delete`, and forwards `status` to a published `@MainActor` observable that the UI subscribes to.
-- On transport-level reconnect failure (3 consecutive), `SyncEngine` calls `TransportSelector.reprobe()` once and may swap from WS to REST or vice versa.
-
-### Connection status enum (mirrors iteration 22 schema)
-
-```swift
-enum ConnectionStatus: Equatable {
-    case disabled
-    case connecting
-    case authenticating
-    case connected
-    case fetching
-    case pushing
-    case waitingForNextPull(secondsUntil: Int) // REST mode only
-    case fallback(reason: FallbackReason)      // server didn't advertise ws-v2
-    case failed(reason: String, retryIn: Int)
-}
-```
-
-The exact state vocabulary, transitions, and rendering rules are defined once in `docs/connection-status.md` (iteration 22). Both transports emit only those states.
-
-### Tests
-
-- `WebSocketTransport` unit tests against an in-process `URLSessionWebSocketTask` fake: dial → subscribe → push → broadcast received → token_expiring → reauth → close-4401 → reconnect.
-- `RestTransport` tests carry over from iteration 11; ensure they still pass through the new protocol surface.
-- `TransportSelector`: probes `/capabilities`, returns the right transport for each combo of `protocols`, and emits `fallback(.serverDoesNotSupportWebSocket)` when only `rest-v1` is advertised.
-- Status-stream snapshot tests: a scripted scenario (connect → push → idle → disconnect → reconnect) produces a known sequence of `ConnectionStatus` values.
-
-### Backwards compatibility
-
-- If a user is on v0.2.x and upgrades to v0.3.0 while their deploy is still v0.2.0, capabilities returns `["rest-v1"]` and the engine transparently uses `RestTransport`. The fallback alert is shown so the user knows to upgrade their backend.
-- The `Prefs.backendURL` schema is unchanged. No migration prompt.
-
-**Acceptance criteria:** `swift test` passes. Manual: against an iteration-18 dev stack, two macOS instances on one mnemonic converge in under 2 seconds (vs. ~60s in v0.2.0). Against a forced-REST stack (`INCLUDE_REST_V1=true` and no v2), the engine falls back, status indicator shows the alert state, and convergence matches v0.2.0 behavior.
-
-**Out of scope:** UI of the indicator and settings panel (iterations 22–23); web-side changes.
+**Out of scope:** sync events (iteration 21); Settings UI (24); removing the
+mnemonic path.
 
 ---
 
-## Iteration 21 — Web sync engine v2
+## Iteration 20 — Web PNM core
 
-**Goal:** Same as iteration 20, on web. The two engines stay structurally aligned so `sync-doctor` and the connection-status taxonomy are load-bearing across both clients.
-
-**Decision:** Use the platform `WebSocket` global (no dep). Mirror the file layout from `apps/macos/Sources/CornerTasks/Sync/Transport/`.
-
-**Deliverables (`apps/web/src/sync/transport/`):**
-
-- `SyncTransport.ts` — same surface as the macOS protocol, expressed as a TypeScript interface returning `ReadableStream<SyncEvent>` for inbound and `ReadableStream<ConnectionStatus>` for status (or an `EventTarget`-based emitter — pick one and stick with it; document choice).
-- `WebSocketTransport.ts` — `new WebSocket(url + "?token=" + bearer)`. Same frame contract as macOS. Reconnect / reauth identical to §11.7. Pause when `document.hidden`; resume + immediate `subscribe` on `visibilitychange → visible` (carrying the §11.6 dedupe rules — pulled events may overlap pushed events).
-- `RestTransport.ts` — wraps the existing `SyncEngine` polling logic from iteration 12.
-- `TransportSelector.ts` — same capabilities probing as macOS.
-- `SyncEngine.ts` becomes a coordinator like its macOS sibling.
-- Vitest tests covering the matrix: dial / subscribe / push / broadcast / token_expiring / reauth / close-4401 / reconnect / tab-hidden-pauses / tab-visible-resumes / capabilities-says-rest-only → fallback emitted.
-
-**Acceptance criteria:** `npm test --workspace apps/web` passes. Manual: a macOS instance and a web instance on the same mnemonic against an iteration-18 dev stack each see the other's edits in under 2s. With the deploy switched to REST-only, both clients still converge (in ~60s) and both show the fallback alert.
-
-**Out of scope:** the alert/indicator UI (iterations 22–23).
-
----
-
-## Iteration 22 — Shared connection-status indicator
-
-**Goal:** One visual + textual vocabulary for connection status, implemented identically on macOS and web. Adds `docs/connection-status.md` as the design contract.
-
-**Deliverables — `docs/connection-status.md`:**
-
-| State                       | Circle color | Phrase (en)                                | When                                                                |
-|----------------------------|--------------|--------------------------------------------|---------------------------------------------------------------------|
-| `disabled`                  | gray (#9CA3AF) | "Cloud sync disabled"                    | `cloudSyncEnabled == false` OR no backend URL configured.           |
-| `connecting`                | gray (#9CA3AF), pulsing | "Connecting…"                  | Socket opening / first capabilities probe.                          |
-| `authenticating`            | yellow (#F59E0B), pulsing | "Authenticating…"            | Bearer being acquired or refreshed.                                 |
-| `connected`                 | green (#10B981), solid | "Connected"                     | WS open, idle.                                                       |
-| `fetching`                  | green (#10B981), pulsing | "Fetching updates…"           | Server is streaming events to us (WS) or a pull is in flight (REST).|
-| `pushing`                   | green (#10B981), pulsing | "Sending changes…"            | A push frame / POST is in flight.                                    |
-| `waitingForNextPull(secs)` | blue (#3B82F6), solid | "Next sync in {secs}s"          | REST mode only, between successful pulls.                            |
-| `fallback`                  | orange (#F97316), solid | "Using polling — server doesn't support WebSocket"  | Capabilities advertised only `rest-v1`.       |
-| `failed(retryIn)`           | red (#EF4444), pulsing | "Disconnected — retrying in {n}s" | Reconnect backoff active. Click reveals last error.       |
-
-- The circle is rendered as an 8-px (macOS) / `0.5rem` (web) dot to the left of the phrase. Hover/long-press shows the most recent error message + the underlying state machine name.
-- Click opens the Settings → Cloud Sync panel.
-- Position:
-  - **macOS**: bottom of the floating panel, left-aligned in the existing footer row. Existing footer items (settings cog) move right.
-  - **web**: bottom-left of the app shell, fixed-position on mobile (above the bottom safe-area inset), inline-block under the header on desktop.
-- All strings live in one file per platform (`apps/macos/Sources/CornerTasks/UI/ConnectionStatusStrings.swift` and `apps/web/src/ui/connectionStatusStrings.ts`) for future localization.
-- Accessibility: aria-live="polite" on web; `NSAccessibility` description on macOS reads the phrase. Don't rely on color alone.
-
-**Deliverables (code):**
-
-- `apps/macos/Sources/CornerTasks/UI/ConnectionStatusBadge.swift` — SwiftUI view bound to the engine's `status` publisher.
-- `apps/web/src/ui/ConnectionStatusBadge.tsx` — equivalent React component.
-- Storybook-equivalent: a `?status=<state>` URL param on the web app forces a particular state for manual visual regression; on macOS a hidden debug menu entry under "Debug ▸ Force connection state…" does the same.
-- Tests:
-  - Snapshot of every state on each platform.
-  - State-transition tests: scripted sequence from iteration 20/21 produces the expected sequence of rendered badges.
-
-**Acceptance criteria:** screenshots of all states match between macOS and web side by side; both pass their snapshot suites. `docs/connection-status.md` is referenced from `AGENTS.md`.
-
-**Out of scope:** Settings panel reorganization (iteration 23).
-
----
-
-## Iteration 23 — Settings UI v2 (consistent across macOS and web)
-
-**Goal:** The Cloud Sync settings panel looks and behaves the same on macOS and web. The "Test" button probes capabilities and tells the user — clearly — whether they will get WebSocket sync or polling fallback.
+**Goal:** The same identity/messaging contract as iteration 19 for the web
+app, using the TypeScript DIDComm stack chosen in iteration 15.
 
 **Deliverables:**
 
-### Panel structure (both platforms, same order)
+- `apps/web/src/fpp/`: device `did:peer` keys in IndexedDB (marked
+  `// SENSITIVE`), account-DID resolution with webvh log verification,
+  mediator session over WSS (connect / authcrypt / pickup), OOB-invitation
+  consumption (camera QR scan reusing the v0.2.0 scan component).
+- The dependency decision from iteration 15 recorded in the PR per AGENTS.md's
+  external-library rule (which library, why, what native/browser gaps it
+  covers).
+- Vitest suites mirroring iteration 19's: key lifecycle, resolution fixtures
+  (valid/tampered/wrong-SCID), session state machine against a mock mediator.
 
-1. **Status header** — large copy of the connection-status indicator from iteration 22 + the current `accountDid` (monospace, copyable).
-2. **Enable cloud sync** toggle. When off, sections 3–5 are visually de-emphasized and disabled.
-3. **Backend URL** — text field, validated by:
-   - URL syntactically valid (`https://` required; warn but allow `http://localhost`).
-   - `GET /capabilities` returns 200 within 5 s.
-4. **Test** button next to the URL. Click runs the capability probe and shows one of:
-   - ✅ "WebSocket sync available — your edits will appear on other devices in under a second."
-   - ⚠️ "This server only supports polling — your edits will appear on other devices within ~1 minute. Ask the operator to upgrade the backend to v0.3.0+."
-   - ❌ "Couldn't reach this server: `<reason>`."
-   The probe result is also stored so the connection-status indicator shows `fallback` immediately on engine start without re-probing.
-5. **Identity** subsection — Show DID, Show mnemonic (gated by `RevealGate`), Show QR, Forget this device. Unchanged from v0.2.0.
-6. **Advanced** subsection (collapsed by default) — push interval (REST mode only; greyed out in WS mode), archive cutoff days (read-only label "60 days, hard-coded by protocol"), debug toggles for forcing a transport.
+**Acceptance criteria:** `npm test --workspace apps/web` green; a debug page
+connects to the local dev stack and round-trips a DIDComm message with a
+iteration-19 macOS peer (manual smoke note with both attached).
 
-### Cross-platform consistency rules
-
-- Same section order, same labels, same copy. Translation file is a flat key→string map; macOS uses `String(localized:)`, web uses a tiny `t(key)` helper reading the same keys.
-- Spacing: 12 px (macOS) / `0.75rem` (web) between sections. Buttons use the platform-native primary style (no custom theme).
-- Validation: errors render inline under the field, not as modals.
-
-### Implementation notes
-
-- macOS: extend `apps/macos/Sources/CornerTasks/UI/SettingsView.swift`. Drop any one-off layout differences from v0.2.0.
-- Web: extend `apps/web/src/ui/SettingsPanel.tsx`. Pull strings into `apps/web/src/ui/strings.ts`.
-- Both wire the "Test" button to the `TransportSelector.probe()` helper from iterations 20/21.
-
-### Tests
-
-- macOS UI test: settings panel renders all six sections in order; "Test" with a stub transport returns each of the three outcomes and shows the correct copy.
-- Web Vitest + Testing-Library: same matrix.
-- Visual diff: side-by-side screenshot at 390×844 (iPhone 14) and at the macOS panel's native size, attached to the PR description.
-
-**Acceptance criteria:** the two panels look like the same product. The "Test" button is unambiguous about whether the user is getting WS or polling.
-
-**Out of scope:** changing the enable-cloud-sync chooser modal copy; QR scan UI changes; mnemonic-import flow changes.
+**Out of scope:** sync engine (22), UI (24), removing the mnemonic path.
 
 ---
 
-## Iteration 24 — Docker Compose backend (Postgres + Node) consuming `@cornertasks/core`
+## Iteration 21 — macOS sync engine v3
 
-**Goal:** A second concrete backend that exposes the **exact same wire protocol** as the AWS backend, runnable with one `docker compose up`. Reuses every protocol decision and every line of validation/conflict/auth logic via `@cornertasks/core`. Implementation-specific code is only adapters (Postgres storage + a `ws`-based WebSocket server).
-
-**Decision:** Single Node service + single Postgres service. No Redis, no NATS. Broadcast within a single instance uses an in-process registry; for multi-instance fan-out the README points at Postgres `LISTEN/NOTIFY` as a follow-up — out of scope for v0.3.0.
-
-**Deliverables (`backend/docker/`):**
-
-### Layout
-
-```
-backend/docker/
-├── docker-compose.yml
-├── Dockerfile                            # multi-stage; final image is node:22-alpine
-├── package.json                          # depends on @cornertasks/core, express, ws, pg, zod
-├── tsconfig.json
-├── .env.example                          # PG_*, JWT_SIGNING_KEY_PATH or JWT_SIGNING_SECRET, AUDIENCE
-├── src/
-│   ├── main.ts                           # boots HTTP server + WS server
-│   ├── http/
-│   │   ├── auth.ts                       # /auth/challenge, /auth/token via @cornertasks/core
-│   │   ├── capabilities.ts               # mirrors backend/aws/src/handlers/capabilities.ts
-│   │   └── restSync.ts                   # /v1/sync/push, /v1/sync/pull (gated by INCLUDE_REST_V1)
-│   ├── ws/
-│   │   ├── server.ts                     # ws.Server attached to the same HTTP port
-│   │   ├── connectionRegistry.ts         # in-process Map<accountDid, Set<WebSocket>>
-│   │   └── handlers.ts                   # subscribe / push / reauth / pong (mirrors AWS onMessage.ts)
-│   └── adapters/
-│       ├── postgresEventStore.ts         # implements @cornertasks/core EventStore
-│       ├── postgresChallengeStore.ts     # implements ChallengeStore
-│       └── envSigningKey.ts              # implements SigningKeyProvider (reads JWT_SIGNING_* env)
-├── migrations/
-│   └── 001_init.sql                      # events, challenges tables; indexes mirror DynamoDB access patterns
-└── README.md                             # one-command run, env vars, k8s notes (iter 25)
-```
-
-### Postgres schema (`migrations/001_init.sql`)
-
-```sql
-CREATE TABLE events (
-    account_did   text        NOT NULL,
-    task_id       text        NOT NULL,
-    event_id      text        NOT NULL,
-    updated_at    timestamptz NOT NULL,
-    op            text        NOT NULL CHECK (op IN ('upsert', 'delete')),
-    ciphertext    bytea       NOT NULL,
-    nonce         bytea       NOT NULL,
-    completed_at  timestamptz NULL,
-    PRIMARY KEY (account_did, task_id)
-);
-CREATE INDEX events_by_account_updated_at ON events (account_did, updated_at);
-
-CREATE TABLE auth_challenges (
-    account_did  text        NOT NULL,
-    challenge    text        NOT NULL,
-    expires_at   timestamptz NOT NULL,
-    PRIMARY KEY (account_did, challenge)
-);
-CREATE INDEX auth_challenges_expires ON auth_challenges (expires_at);
-```
-
-A simple `expireBatch` loop in the Node service deletes expired challenges every minute (no DynamoDB TTL on this side).
-
-### docker-compose.yml (sketch)
-
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: cornertasks
-      POSTGRES_PASSWORD_FILE: /run/secrets/pgpw
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    secrets: [pgpw]
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
-  api:
-    build: .
-    environment:
-      PG_HOST: postgres
-      PG_DB: cornertasks
-      PG_USER: postgres
-      AUDIENCE: http://localhost:8080
-      INCLUDE_REST_V1: "false"
-      # JWT_SIGNING_KEY_PATH=/run/secrets/jwtkey  (preferred)
-      # JWT_SIGNING_SECRET=...                    (HS256 fallback)
-    ports:
-      - "8080:8080"
-    depends_on:
-      postgres: { condition: service_healthy }
-
-volumes:
-  pgdata:
-
-secrets:
-  pgpw: { file: ./.secrets/pgpw }
-```
-
-### Behavioural contracts
-
-- `/capabilities` returns `protocols: ["ws-v2"]` by default. With `INCLUDE_REST_V1=true` env var, returns `["ws-v2", "rest-v1"]` and mounts the REST routes.
-- The Postgres adapter uses ordinary `pg.Pool` — no ORM. Queries are written by hand and tested against `pg-mem` (in-process Postgres-compatible store) so unit tests don't need Docker.
-- The WebSocket server attaches to the same HTTP port on path `/v2/ws`. Bearer JWT is read from the URL's `?token=` query param, verified via `@cornertasks/core/bearer.verify`, and the connection is rejected with a `401` HTTP upgrade response otherwise (clients see this as a WS close).
-- Idle disconnect: 10 minutes, matching API Gateway (so client reconnect behaviour is identical on both backends).
-- Keepalive: `ping` every 4 minutes, matching iteration 18.
-
-### Tests
-
-- Vitest unit tests for adapters via `pg-mem`.
-- Integration test using `testcontainers` (postgres image) covering challenge → token → ws.subscribe → ws.push → broadcast → token_expiring → reauth.
-- Run `sync-doctor` (from iteration 19) against `http://localhost:8080` — same script, same green/red. CI does NOT run this (avoids pulling Postgres in CI for now); document the manual run in the README.
-
-### Documentation
-
-- `backend/docker/README.md`:
-  - One-command bring-up: `cp .env.example .env && docker compose up --build`.
-  - Required env vars + IAM-equivalent notes (file permissions on `.secrets/jwtkey`).
-  - "Point a client at it": Settings → Cloud Sync → URL = `http://localhost:8080` → Test button shows the WS capability.
-  - "Running v1 (REST) and v2 (WebSocket) in parallel" — `INCLUDE_REST_V1=true`.
-  - Backup notes: `pg_dump` the `events` table; it's the entire state.
-  - "Why we don't publish a Docker image": the maintainer doesn't host one; users build locally and pin the commit they trust. (Same posture as the BYO-AWS doc.)
-- Update `AGENTS.md` "Repository layout" + add a "Backends" section listing AWS and Docker as the two concretions of `backend/core/`.
-- Update root `README.md` self-hosting section: now mentions both AWS and Docker as supported deployment targets.
-
-**Acceptance criteria:**
-
-- `docker compose up --build` from a clean checkout brings the stack up; `curl http://localhost:8080/capabilities` returns `protocols: ["ws-v2"]`.
-- A macOS or web client pointed at `http://localhost:8080` completes the same end-to-end scenario as against AWS.
-- `npm test --workspace backend/docker` passes (pg-mem-only, no Docker required in CI).
-- `sync-doctor --protocol ws-v2 --api-url http://localhost:8080 --mnemonic '...'` passes locally.
-
-**Out of scope:** publishing a prebuilt image, multi-instance horizontal scaling, k8s manifests (covered as docs in iteration 25).
-
----
-
-## Iteration 25 — Self-hosting docs (Docker, k8s adaptation, AWS cost-tuning)
-
-**Goal:** A developer who isn't deep in this codebase can pick the right backend, deploy it, and understand the AWS bill.
-
-**Decision on k8s**: do NOT add a `backend/k8s/` package. The Docker Compose setup is the source of truth; running it on k8s is a matter of converting the compose file to a Deployment + StatefulSet, which we describe in prose + a minimal example manifest. This avoids a third concretion to keep in sync.
+**Goal:** Replace the REST queue/poller with §10 DIDComm sync. Local mutations
+flow out as authcrypted events; remote events arrive live or via pickup on
+launch; LWW conflict resolution and the 60-day archive cutoff are unchanged.
 
 **Deliverables:**
 
-### `backend/docker/README.md` — extend with these sections
+- `Sync/` rework: outbound path serializes the existing `SyncEvent` into §10
+  messages fanned out to the current peer set; inbound path applies events
+  idempotently by `eventId`; pickup runs on session establish; peer-set
+  refresh per §10. The `sync_queue` table remains the durable outbound buffer
+  (offline-first: queue locally, drain when the mediator session is up).
+- New-device bootstrap: full-state request/offer per §10 when a fresh device
+  joins an account with history.
+- The mnemonic-era sync client and DID-Auth/JWT code are deleted from the
+  macOS target; `Crypto/` shrinks to what FPP needs. Update AGENTS.md sections
+  in the same PR.
+- Tests: LWW matrix (concurrent update/archive/delete, tie-breaker),
+  re-delivery idempotence, queue-drain ordering, full-state bootstrap, revoked
+  peer excluded from fan-out.
 
-- **Running on Kubernetes** (≤ 100 lines):
-  - One `Deployment` for the Node `api` service (≥ 2 replicas only if you also add `pg_listen`-based fan-out, which is *out of scope for v0.3.0* — explicitly call this limitation out).
-  - One `StatefulSet` for Postgres (single replica) with a `PersistentVolumeClaim`.
-  - One `Service` (`ClusterIP`) + one `Ingress` with WS support (annotations vary per Ingress controller; show the nginx-ingress example: `nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"`, `nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"`).
-  - Secrets: `JWT_SIGNING_KEY` and `PG_PASSWORD` as `Secret` resources.
-  - Health/readiness probes pointing at `/capabilities` (200 = ready).
-  - **What's intentionally missing**: a Helm chart, horizontal autoscaling beyond a single replica, multi-cluster fan-out. These are out of scope; contributors who need them should open a tracked issue.
-- **Production checklist** (applies to both compose and k8s): TLS termination at the ingress (or `caddy` reverse-proxy for compose), `JWT_SIGNING_KEY` rotation note, `events` table backup, observation that the event store grows monotonically until the 60-day archive cutoff is applied (server-side filter on pull, but server keeps the rows — clients can read history; document the optional `VACUUM` job).
+**Acceptance criteria:** two macOS instances (or macOS + iteration-18
+synthetic peer) on a local dev stack converge in under 2 s while both
+online, and converge after one was offline through the other's edits
+(pickup path). `scripts/test-all.sh` green.
 
-### `backend/aws/README.md` — extend with these sections
-
-- **Cost-tuning** (≤ 80 lines, plain numbers, label every figure as "approximate, region us-east-1, 2026 prices — verify"):
-  - DynamoDB on-demand vs. provisioned for the three tables (`events`, `auth_challenges`, `ws_connections`). Recommendation: on-demand for v0.3.0; revisit at >10k DAU.
-  - API Gateway WebSocket pricing model (per-million messages + per-million connection-minutes). Worked example: a single user with one macOS + one web instance, both connected 8 hours/day, generating ~50 edits/day → ≈ $X/month. Show the math.
-  - ARM Lambda (`Architectures: [arm64]`) on every function — done in iteration 18; this section is a reminder.
-  - CloudWatch Logs retention: set to 7 days for the WS handlers (a chatty handler) and 30 days for `auth/*`.
-  - SAM parameter `IncludeRestV1=false` cuts an entire API + 2 Lambdas — call out the savings.
-  - Reserved-concurrency caps to keep a misbehaving client from running up a bill.
-
-### Root `README.md`
-
-- Add a "Choose a backend" subsection just above the privacy section: a 5-row table comparing AWS vs. Docker Compose on Setup effort / Operational effort / Cost / Scale / Best for.
-
-**Acceptance criteria:** documents render correctly, are referenced from `AGENTS.md`, and a contributor unfamiliar with the project can stand up either backend in under an hour following only the README.
-
-**Out of scope:** Helm charts, Terraform modules, hosted-service offerings.
+**Out of scope:** web (22); status indicator (23); Settings (24).
 
 ---
 
-## Iteration 26 — End-to-end verification
+## Iteration 22 — Web sync engine v3
 
-**Goal:** Confirm the full v0.3.0 surface across the deployment matrix.
+**Goal:** Same as iteration 21 for the web app, plus browser-lifecycle
+handling.
 
-**Deliverables — extend `docs/e2e-test.md`:**
+**Deliverables:**
 
-For each backend (AWS with `INCLUDE_REST_V1=false`, AWS with `INCLUDE_REST_V1=true`, Docker Compose):
+- `apps/web/src/sync/` rework mirroring iteration 21 (same §10 semantics,
+  same test matrix in Vitest), IndexedDB-backed outbound queue.
+- Tab visibility: hidden tab pauses the mediator session cleanly; visible
+  resumes and runs pickup. Multi-tab: single-owner via Web Locks (or the
+  v0.2.0 mechanism if one exists — reuse, don't reinvent).
+- Legacy REST sync client deleted; version bumped in `apps/web/package.json`
+  only at release (27).
 
-1. **Capability probe**: macOS Settings → Test → shows the right message for the deploy.
-2. **WS happy path**: edit on macOS → web sees the change in under 2 s (`source: "push"` in the WS log). Connection-status badge shows `pushing` → `connected` on the sender and `fetching` → `connected` on the receiver.
-3. **REST fallback**: temporarily set `--protocol rest-v1` on the client (or deploy AWS with `INCLUDE_REST_V1=true` and an artificial WS rejection); confirm convergence in ~60 s and `fallback` badge.
-4. **Token expiry**: shorten the bearer `exp` to 90 s, wait for `token_expiring` → `reauth` → no reconnect visible. Connection-status badge shows `authenticating` briefly.
-5. **Reconnect**: kill the Wi-Fi for 30 s; badge shows `failed(retryIn:…)` → `connecting` → `connected` on resume; no events lost.
-6. **Archive cutoff**: insert an event with `completedAt = 70 days ago` on macOS; web does NOT receive it.
-7. **Disabled state**: turn off cloud sync on web; badge shows `disabled`; no network traffic.
-8. **Standalone-mode regression** (carry-over): a fresh macOS install with cloud sync off makes zero outbound network calls.
-9. **Cross-backend identity**: same mnemonic against AWS and Docker concurrently — events do NOT merge across backends. Document that this is expected (each `ApiUrl` is its own universe).
+**Acceptance criteria:** macOS + web on one account against the dev stack
+converge under 2 s both-online and after offline pickup; the v0.2.0-era
+"two clients on one account" e2e scenario in `docs/e2e-test.md` is rewritten
+for FPP and passes manually.
 
-Each bug found gets a regression test in iterations 20 / 21 / 24 as appropriate.
+**Out of scope:** status indicator (23), Settings (24).
 
-**Acceptance criteria:** the script passes end-to-end across all three deploy modes.
+---
+
+## Iteration 23 — Connection-status indicator
+
+**Goal:** One visual + textual vocabulary for the DIDComm session state,
+identical on macOS and web. **Design schema first** per AGENTS.md: tokens,
+component, overlay ops, text keys under `design/`, validated, then app code.
+
+**Deliverables — `docs/connection-status.md` (design contract):**
+
+| State | Circle | Phrase (en) | When |
+|---|---|---|---|
+| `disabled` | gray, solid | "Sync disabled" | No account DID configured / sync off. |
+| `resolving` | gray, pulsing | "Finding your network…" | Resolving account/mediator DID documents. |
+| `connecting` | gray, pulsing | "Connecting…" | WSS dial to the mediator. |
+| `authenticating` | yellow, pulsing | "Authenticating…" | DIDComm session establishment. |
+| `live` | green, solid | "Connected" | Session up, idle. |
+| `receiving` | green, pulsing | "Receiving changes…" | Inbound events / pickup drain in flight. |
+| `sending` | green, pulsing | "Sending changes…" | Outbound queue draining. |
+| `queued(n)` | blue, solid | "{n} changes waiting to send" | Offline with a non-empty outbound queue. |
+| `failed(retryIn)` | red, pulsing | "Disconnected — retrying in {n}s" | Backoff active; hover/long-press shows last error. |
+
+Colors come from `design/` tokens (one token per state, rule 7 of the design
+schema); the v0.2.0 REST-only states (`waitingForNextPull`, `fallback`) do not
+exist in v0.3.0.
+
+**Deliverables (code):** `design/` component + screen nodes + text keys +
+per-platform overlays (validated); `ConnectionStatusBadge` in SwiftUI and
+React bound to the engine state machines from 21/22; a debug affordance to
+force each state (URL param on web, Debug menu on macOS); snapshot +
+state-transition tests on both platforms.
+
+**Acceptance criteria:** `make design-validate` green; side-by-side
+screenshots of every state match across platforms; `docs/connection-status.md`
+referenced from AGENTS.md.
+
+**Out of scope:** Settings panel (24).
+
+---
+
+## Iteration 24 — Settings v2: one DID, a device list, and QR onboarding
+
+**Goal:** Sync configuration collapses to a single input — the account
+`did:webvh` — plus device management. The panels look and behave the same on
+macOS and web. Design schema first, as always.
+
+**Deliverables (both platforms, same order):**
+
+1. **Status header** — iteration-23 indicator + the account DID (monospace,
+   copyable).
+2. **Enable sync** toggle (default off; enabling with no account starts
+   onboarding).
+3. **Account** — either *Create new account* (walks through pointing at a
+   deployed stack: paste the account DID printed by `deploy/bootstrap/`, or
+   scan it as QR) or *Join existing account* (scan/paste an enrollment
+   invitation from another device or the CLI). **There is no mediator-URL or
+   VTA-URL field anywhere** — discovery is DID-document-only; a "Test"
+   button resolves the DID and reports each hop (did.jsonl ✓ → mediator DID ✓
+   → mediator reachable ✓) with a clear failure message per hop.
+4. **Devices** — list of enrolled device DIDs with labels and last-seen;
+   *Invite device* (renders the OOB QR); *Revoke* with confirmation.
+5. **This device** — its DID, key created-at, *Forget this device* (local
+   wipe + best-effort self-revocation).
+- Import-merge warning parity rule from v0.2.0 carries over: joining an
+  account merges local tasks into it; prominent red warning, identical wording
+  on both platforms (text key in `design/text/en.json`).
+- Mnemonic UI, backend-URL field, and related strings removed from apps and
+  `design/`.
+- Tests: macOS UI test + web Testing-Library matrix over the panel structure
+  and the three Test-button outcomes; design parity report reviewed.
+
+**Acceptance criteria:** a new device goes from fresh install to synced with
+only a QR scan; the two panels read as the same product; `make
+design-validate` green.
+
+**Out of scope:** agent management UI beyond listing (25 adds enrollment).
+
+---
+
+## Iteration 25 — Local MCP server + accountable agent DIDs
+
+**Goal:** AI agents on the user's machine (Claude Desktop/Code, IDE
+assistants) can create and manage tasks through a local MCP server, and every
+agent acts under its **own enrolled DID** with a narrow ACL — FPP
+authenticated delegation, locally, with no task data leaving the machine.
+
+**Deliverables:**
+
+- `apps/mcp/` (TypeScript, stdio MCP server): tools `create_task`,
+  `update_task`, `complete_task`, `list_tasks`, `archive_task`. It talks to
+  the local task store of the host device's app (define and document the
+  local IPC: the macOS app exposes a localhost-only, loopback-bound socket
+  with an allowlist — spec the mechanism in the PR; **no network exposure**).
+- Agent enrollment: `enroll-agent` in `deploy/bootstrap/` (and a Settings
+  list entry from 24 showing enrolled agents) — each agent gets a `did:peer`
+  with an `agent` role in the context ACL; events it originates carry its DID
+  as the author; revocation cuts it off like a device.
+- Events created via MCP flow through the normal iteration-21 sync path.
+- `docs/ARCHITECTURE.md` AI-agents section updated with the shipped reality;
+  README gains a "Connect Claude/your IDE" section with copy-paste MCP config.
+- Tests: tool-schema round-trips, ACL enforcement (a revoked agent's calls are
+  rejected), author-DID attribution asserted on the produced events.
+
+**Acceptance criteria:** from Claude Code, "create a task X due Friday"
+appears in the macOS panel and syncs to web; the event's author is the
+agent's DID; revoking the agent stops further writes. No listener reachable
+from off-host.
+
+**Out of scope:** any hosted/M365 endpoint (see ARCHITECTURE.md — requires
+employer-sanctioned in-tenant hosting); agent access from devices other than
+the one running the store.
+
+---
+
+## Iteration 26 — End-to-end on real hardware
+
+**Goal:** Execute the whole story on the actual target: a Raspberry Pi behind
+Starlink CGNAT, a managed (outbound-only) Mac, a phone browser, and an AI
+agent — from unboxing to converged sync, following only committed docs.
+
+**Deliverables:**
+
+- The `deploy/README.md` runbook executed verbatim on the target hardware —
+  **Raspberry Pi Zero 2 W (512 MB)**, headless, native binaries under systemd
+  (no Docker; zram only if iteration 15's measurement said so) — with
+  Cloudflare Tunnel on a real (sub)domain; every deviation found becomes a
+  doc fix in this PR. If the Zero 2 W fails the sustained-load
+  checks below, record the measurements, re-target the runbook to a Pi 5
+  (2 GB), and note the Zero result honestly in `deploy/README.md`.
+- Verification matrix, recorded in `docs/e2e-test.md`:
+  1. macOS (corporate/MDM network) + iPhone Safari on one account — converge
+     both-online and via offline pickup.
+  2. Device revocation: revoked device stops receiving; re-enrollment works.
+  3. Mediator restart mid-session: clients recover per the state machine
+     (23's states observed correctly).
+  4. Pi reboot: all three systemd units come back enabled on boot; DID
+     resolution works from a cold start.
+  5. MCP agent creates a task on the Mac; it appears on the phone.
+  6. Starlink IP change (or simulated tunnel re-establish): no client action
+     needed.
+- A cost-and-resources note in `deploy/README.md`: measured RAM/CPU/disk on
+  the Pi, so others can size hardware honestly.
+
+**Acceptance criteria:** every matrix row passes on real hardware and is
+recorded with dates/versions in `docs/e2e-test.md`; the runbook is
+executable by someone who has never seen the repo.
+
+**Out of scope:** performance tuning beyond "it fits the target hardware's memory budget".
 
 ---
 
 ## Iteration 27 — Release v0.3.0
 
-**Goal:** Cut the release.
+**Goal:** Ship it, and finish the hard cut.
 
 **Deliverables:**
 
-- Bump `apps/macos/AppBundle/Info.plist` `CFBundleVersion` and `CFBundleShortVersionString` to `0.3.0`.
-- Bump `apps/web/package.json` and `backend/core/package.json`, `backend/aws/package.json`, `backend/docker/package.json` to `0.3.0`.
-- Update root `README.md` "Version" line + changelog table.
-- Confirm the released DMG starts with cloud sync **off** and no `backendURL` baked in.
-- Confirm `INCLUDE_REST_V1` defaults to `false` in `backend/aws/template.yaml` (i.e., release CI does not need to set anything; default is already "WebSocket only").
-- Update `CHANGELOG.md` with a v0.3.0 entry listing the protocol change, the new self-hosting option, the new connection-status indicator, and the deprecation of `/v1/sync/*` (removal scheduled for v0.4.0).
-- Tag `v0.3.0`. Verify the GitHub Actions release workflow attaches the universal DMG. No AWS secrets involved; that contract must remain.
+- `backend/aws/` moved to `archive/backend-aws-v0.2/` (history preserved),
+  its workflows removed from CI; `docs/sync-protocol.md` §5–§8 moved to an
+  appendix marked *historical*. The v0.2.0 smoke-test workflow retired.
+- Version bumps: `apps/macos/AppBundle/Info.plist`, `apps/web/package.json`,
+  README version line, CHANGELOG entry. Tag `v0.3.0`.
+- README rewritten around the FPP story (see the standing README/AGENTS
+  reshape rules in this file's header): what it is, the one-DID setup, the
+  Pi quickstart pointer, the AI-agents section, honest limits (no native
+  iOS yet, no shared lists yet).
+- Migration note (README + CHANGELOG): v0.2.x users keep local data
+  automatically; cloud-synced v0.2.x accounts re-onboard by creating/joining
+  an FPP account — the old AWS stack can be torn down with
+  `sam delete` (link the old docs in the archive).
+- macOS `build.sh` end-to-end, DMG verified to make zero network calls until
+  sync is enabled (same released-binary contract as v0.2.0).
 
-**Out of scope:** notarization, App Store submission, removing v1 REST endpoints from the code (deferred to v0.4.0 per the deprecation table in `docs/sync-protocol.md` §12).
+**Acceptance criteria:** tagged release; a fresh user with a Pi, a domain, and
+the DMG reaches two-device sync using only released artifacts and committed
+docs.
+
+**Out of scope:** anything listed under "Future directions" in
+`docs/ARCHITECTURE.md` (VTC/shared lists, native iOS, VTA backups, hosted
+agent endpoints).
 
 ---
 
 ## Open questions (resolve before the iteration that needs each)
 
-- **Per-account connection cap on AWS**: should we cap `ws_connections.Query` to, say, 8 connections per account to prevent a runaway client from amplifying a single push into many broadcasts? Default position: yes, soft cap of 8, oldest connection evicted on a 9th. Resolve in iteration 18.
-- **Postgres LISTEN/NOTIFY for multi-instance Docker fan-out**: out of scope for v0.3.0 but called out in `backend/docker/README.md`. If a contributor needs it before v0.4.0, they should file an issue with their scaling target.
-- **Re-auth window**: §11.1 says `token_expiring` fires within 60 s of `exp`. Confirm this is enough headroom on slow mobile networks during iteration 21 testing; widen to 120 s if not.
-- **Connection-status localization**: strings live in flat key→string maps from iteration 22 onward, but we don't add a second language in v0.3.0. Confirm that flat-map shape is enough when localization actually lands (probably v0.4.0).
+- **(15 → 20) Web DIDComm stack**: candidate TS libraries vs a WASM build of
+  the pinned Rust core. Decide in iteration 15 with a working spike snippet;
+  record the choice here.
+- **(15 → 17) Mediator fjall backend**: confirm no redis-only feature is
+  needed at the pinned version; record the checked feature list here.
+- **(17) Cloudflare Tunnel account/tier specifics**: confirm the free tier
+  covers a named tunnel + custom-domain DNS route; document exact setup steps
+  in `deploy/README.md`.
+- **(18) VTA multi-use**: the same VTA/mediator pair should later serve other
+  family identities/apps (pathful DIDs). Nothing in `deploy/bootstrap/` may
+  assume CornerTasks is the only context — verify when writing the scripts.
+- **(21/22) Full-state bootstrap size limits**: mediator message-size caps at
+  the pinned version; chunking strategy if a task history exceeds them.
+- **(25) macOS local IPC for MCP**: exact loopback mechanism and its
+  auth (peer-credential check vs token file). Spec in the iteration-25 PR.
+- **(post-v0.3.0) VTC for shared lists; native iOS app (needs an Apple
+  developer account); ciphertext-only VTA backups.**

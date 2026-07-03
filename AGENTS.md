@@ -2,13 +2,13 @@
 
 Guidance for AI agents working on this repository. Read this before making changes.
 
-> Iterations for v0.2.0 are tracked in [`ITERATIONS.md`](ITERATIONS.md). If you are picking up work, start there — execute exactly one iteration per pass and stop.
+> Iterations for **v0.3.0** are tracked in [`ITERATIONS.md`](ITERATIONS.md). If you are picking up work, start there — execute exactly one iteration per pass and stop. The architectural contract for v0.3.0 is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); read it before any v0.3.0 iteration.
 
 ## Product
 
 CornerTasks is a small floating task widget. The first interface is a macOS app: a vertical strip pinned to the right edge of the screen, always above other windows, that the user hides manually. Quick add, double-click to edit, tick to archive, optional due date with color coding.
 
-v0.2.0 introduces:
+**Shipped in v0.2.x** (current release):
 
 - A **web app** (mobile-first) hosted on S3 + CloudFront, with the same feature set.
 - An **AWS serverless backend** (TypeScript SAM) that stores tasks in DynamoDB.
@@ -16,6 +16,8 @@ v0.2.0 introduces:
 - **Decentralized identity**: each account is a `did:key` derived from an Ed25519 keypair the user holds. Two devices with the same mnemonic share the same DID and the same account.
 - **End-to-end encryption**: task fields are encrypted on-device with an AES-256-GCM key derived from the same BIP-39 mnemonic. The backend stores ciphertext only — neither the maintainer nor the AWS account owner can decrypt user data.
 - **Sync** with conflict resolution by event timestamp; archived items older than 2 months are not synced.
+
+**v0.3.0 (in progress)** turns CornerTasks into a **real-world example of the First Person Project**: the account becomes a `did:webvh` hosted by a personal VTA (self-hosted, e.g. a Raspberry Pi behind Cloudflare Tunnel), each device is a PNM with its own revocable `did:peer`, sync flows device-to-device over DIDComm v2.1 through a blind mediator (no central task storage), clients are configured by the account DID alone (all endpoints discovered from DID documents), and AI agents get their own accountable DIDs behind a local MCP server. The AWS backend and the mnemonic identity are removed at release. Full picture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Sections below that describe the v0.2.0 sync/identity stack remain accurate for the code on `main` until the iteration that replaces them lands — each such iteration updates this file.
 
 ## Core principles
 
@@ -77,6 +79,8 @@ If a change feels like it needs a new abstraction layer, push back: most additio
 ```
 
 In v0.1.0 the macOS app lives at the repo root. Iteration 1 in [`ITERATIONS.md`](ITERATIONS.md) moves it under `apps/macos/`.
+
+**v0.3.0 layout changes** (land iteration by iteration): `deploy/` (systemd units + cross-compiled native binaries for the self-hosted VTA + DIDComm mediator + Cloudflare Tunnel — no Docker on the Pi — `.env`-driven, plus bootstrap scripts and a `dev.sh` local stack), `apps/mcp/` (local MCP server for AI agents), new `FPP/`/`fpp/` modules inside each app, and at release `backend/aws/` moves to `archive/backend-aws-v0.2/`.
 
 ## Design schema (SSOT for UI structure)
 
@@ -184,6 +188,8 @@ When the schema and the implementation disagree, **the schema wins** — fix the
 
 ## Cloud sync — opt-in only
 
+> **v0.3.0 note:** the three sections below (“Cloud sync”, “Sync model”, “Identity & encryption”) describe the **v0.2.0 stack still on `main`**. v0.3.0 replaces the transport (DIDComm v2.1 via mediator), the identity (`did:webvh` account + per-device `did:peer`), and removes the AWS backend — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The “opt-in, zero network calls by default” contract and the “no server can read task content” contract are **unchanged** and carry into v0.3.0. Update these sections in the same PR as the iteration that changes the behavior.
+
 - **Default state: cloud sync is OFF.** The app stores everything locally and makes no network calls. This is the released-binary default and the contract with users.
 - The user enables cloud sync from Settings. Enabling requires (a) generating or importing a key, and (b) entering the `ApiUrl` of a backend they have deployed to **their own** AWS account.
 - The released DMG MUST NOT contain a hard-coded `backendURL`. Verified at release time (iteration 14) and as part of E2E (iteration 13).
@@ -229,7 +235,7 @@ When the schema and the implementation disagree, **the schema wins** — fix the
 
 - Version lives in `apps/macos/AppBundle/Info.plist` (`CFBundleVersion` and `CFBundleShortVersionString`), in `apps/web/package.json`, and in the README "Version" line and changelog table.
 - Bump all of them when releasing. Tag the commit `vX.Y.Z`.
-- Current release: **v0.1.0**. v0.2.0 is in progress per [`ITERATIONS.md`](ITERATIONS.md).
+- Current release: **v0.2.1**. v0.3.0 is in progress per [`ITERATIONS.md`](ITERATIONS.md).
 
 ## Build
 
@@ -265,6 +271,8 @@ When the schema and the implementation disagree, **the schema wins** — fix the
 ## When making changes
 
 - Never create a new git branch. Always work directly on the current branch.
+- **Every change updates `CHANGELOG.md`.** Add an entry under the `## [Unreleased]` section at the top (create the section if it doesn't exist), in the file's existing style (`### Added` / `### Changed` / `### Fixed` / `### CI / Infra`). One or two lines per change, written for a user or downstream deployer, not a diff summary. At release, the Unreleased section is renamed to the version heading.
+- **Fix documentation drift in the same PR you notice it.** If your change makes — or reveals — any document wrong (`docs/ARCHITECTURE.md`, `docs/sync-protocol.md`, `README.md`, `design/README.md`, this file, or an iteration body in `ITERATIONS.md`), update that document too. Don't ship code that contradicts a committed doc; don't leave a stale doc for the next agent to trip over. If the drift is too big to fix in-scope, record it as an entry in the active **Open questions** section of `ITERATIONS.md` instead — never silently ignore it.
 - **If your change touches anything visible, update `design/` first** (tokens, components, screens, overlays, text keys) and run `make design-validate` until green. See "Design schema" above. Schema and implementation ship in the same PR.
 - Update `README.md` if user-visible behavior changes.
 - Update this file if architectural conventions change.
