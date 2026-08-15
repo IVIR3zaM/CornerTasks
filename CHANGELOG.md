@@ -34,6 +34,13 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   together. No wire-protocol or deployment behavior changes — deploying
   `backend/aws/` still works exactly as before. This is prep for the
   self-hosted container runtime landing in a later v0.3.0 node.
+- **`backend/core` gains an env/file JWT signing-key loader**, selected via
+  `CT_KEY_SOURCE=env|file`, for the self-hosted runtime landing in a later
+  v0.3.0 node — no AWS SSM dependency required. `JWT_PRIVATE_KEY`/
+  `JWT_PUBLIC_KEY` (or `JWT_SECRET` for HS256) for `env`; the matching
+  `*_FILE` variables for `file`. Fails loudly on a missing or malformed key
+  rather than generating an ephemeral one. AWS Lambda is unaffected — it
+  keeps using its own SSM-backed key via `runtime-bootstrap.ts`.
 
 ### Removed
 
