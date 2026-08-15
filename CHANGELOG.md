@@ -26,6 +26,14 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   executes the next ready node via model-tiered subagents (`ct-scribe`,
   `ct-implementer`, `ct-architect`). New architecture contract in
   `docs/ARCHITECTURE.md`.
+- **Backend split into `backend/core/` (runtime-neutral) and `backend/aws/`
+  (Lambda-specific).** Sync/auth handlers, JWT, DID verification, request
+  validation and the `Store` interface now live in `backend/core/`, importable
+  by any runtime; `backend/aws/` keeps only the DynamoDB store, the SSM signing
+  key, `template.yaml`, and thin Lambda entry points that wire the two
+  together. No wire-protocol or deployment behavior changes — deploying
+  `backend/aws/` still works exactly as before. This is prep for the
+  self-hosted container runtime landing in a later v0.3.0 node.
 
 ### Removed
 

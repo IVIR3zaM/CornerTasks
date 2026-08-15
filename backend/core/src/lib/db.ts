@@ -1,8 +1,10 @@
-// Storage layer for events + auth challenges. The real implementation wraps
-// a DynamoDB DocumentClient; tests inject an in-memory adapter via setStore().
+// Storage layer for events + auth challenges. This module defines the
+// runtime-neutral `Store` contract only. Each runtime supplies its own
+// concrete implementation and registers it with `setStore()` before serving
+// requests — backend/aws does this with a DynamoDB-backed store, a future
+// self-hosted runtime with SQLite. Tests inject an in-memory adapter.
 
 import type { SyncEvent } from '../types/api';
-import { dynamoStore } from './dynamo-store';
 
 export { ARCHIVE_RETENTION_DAYS, ARCHIVE_RETENTION_MS } from './archive-retention';
 
@@ -62,7 +64,9 @@ export function setStore(s: Store): void {
 }
 
 export function getStore(): Store {
-  if (!store) store = dynamoStore();
+  if (!store) {
+    throw new Error('no Store configured; the runtime must call setStore() before handling requests');
+  }
   return store;
 }
 

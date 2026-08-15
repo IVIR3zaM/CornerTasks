@@ -6,9 +6,9 @@ import {
   DeleteCommand,
   UpdateCommand
 } from '@aws-sdk/lib-dynamodb';
-import { ARCHIVE_RETENTION_MS } from './archive-retention';
-import type { AuthChallenge, QueryEventsResult, Store, StoredEvent } from './db';
-import { parseCursor } from './db';
+import { ARCHIVE_RETENTION_MS } from '../../../core/src/lib/archive-retention';
+import type { AuthChallenge, QueryEventsResult, Store, StoredEvent } from '../../../core/src/lib/db';
+import { parseCursor } from '../../../core/src/lib/db';
 
 const ARCHIVE_CUTOFF_MS = ARCHIVE_RETENTION_MS;
 

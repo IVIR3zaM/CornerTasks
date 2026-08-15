@@ -1,5 +1,5 @@
 import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
-import type { JwtAlg } from './jwt';
+import type { JwtAlg } from '../../../core/src/lib/jwt';
 
 export interface SigningKey {
   alg: JwtAlg;

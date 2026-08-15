@@ -1,4 +1,4 @@
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { HttpEvent, HttpResult } from '../types/http';
 import { decodeJwt, verifyEdDsa, verifyHs256 } from './jwt';
 import { getSigningKey } from './signing-key';
 import { errorResponse } from './response';
@@ -9,9 +9,9 @@ export interface BearerSubject {
   accountDid: string;
 }
 
-export type BearerResult = { ok: true; subject: BearerSubject } | { ok: false; response: APIGatewayProxyResultV2 };
+export type BearerResult = { ok: true; subject: BearerSubject } | { ok: false; response: HttpResult };
 
-export async function requireBearer(event: APIGatewayProxyEventV2): Promise<BearerResult> {
+export async function requireBearer(event: HttpEvent): Promise<BearerResult> {
   const headers = event.headers ?? {};
   const auth = headers.authorization ?? headers.Authorization;
   if (!auth || !auth.toLowerCase().startsWith('bearer ')) {
@@ -50,7 +50,7 @@ export async function requireBearer(event: APIGatewayProxyEventV2): Promise<Bear
   return { ok: true, subject: { accountDid: sub } };
 }
 
-export function assertSubjectMatches(subject: BearerSubject, accountDid: string): APIGatewayProxyResultV2 | null {
+export function assertSubjectMatches(subject: BearerSubject, accountDid: string): HttpResult | null {
   if (subject.accountDid !== accountDid) {
     return errorResponse(403, 'forbidden', 'did_mismatch');
   }
