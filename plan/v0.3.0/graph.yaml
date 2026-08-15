@@ -41,7 +41,7 @@ nodes:
     deps: [N01]
     model: sonnet
     oracle: "cd backend/core && npm test"
-    status: todo
+    status: done
 
   - id: N05
     title: SQLite Store implementation
