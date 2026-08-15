@@ -34,6 +34,15 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   together. No wire-protocol or deployment behavior changes — deploying
   `backend/aws/` still works exactly as before. This is prep for the
   self-hosted container runtime landing in a later v0.3.0 node.
+- **`backend/core` gains a SQLite-backed `Store`** (`src/lib/sqlite-store.ts`,
+  `node:sqlite`, no extra dependency) for the self-hosted runtime, so the
+  container survives restarts without DynamoDB. Per-account `seq` is
+  allocated with a single atomic `UPSERT ... RETURNING` statement, so
+  concurrent `putEvent` calls cannot collide; a stale-rejected write still
+  consumes a `seq` (a gap in the log), matching `memoryStore`. `CT_DB_PATH`
+  selects the database file; `src/lib/store-factory.ts` reads `CT_STORE` and
+  currently constructs `sqlite` (`memory`/`dynamo` are selected by the
+  runtimes that own them — see the file for why).
 - **`backend/core` gains an env/file JWT signing-key loader**, selected via
   `CT_KEY_SOURCE=env|file`, for the self-hosted runtime landing in a later
   v0.3.0 node — no AWS SSM dependency required. `JWT_PRIVATE_KEY`/
