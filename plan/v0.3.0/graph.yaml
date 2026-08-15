@@ -48,7 +48,7 @@ nodes:
     deps: [N04]
     model: sonnet
     oracle: "cd backend/core && CT_STORE=sqlite npm test"
-    status: todo
+    status: done
 
   - id: N06
     title: Env/file signing-key provider (drop SSM requirement)
