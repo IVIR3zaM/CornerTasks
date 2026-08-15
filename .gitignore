@@ -7,9 +7,15 @@ Package.resolved
 # macOS
 .DS_Store
 
-# vscode & cluade code
+# vscode & claude code
 .vscode/
-.claude/
+
+# Claude Code: local settings stay local, but skills and agent definitions are
+# part of the repo — a cloud or CI session clones the repo and would otherwise
+# have neither. Keep `settings.local.json` (machine-specific permissions) out.
+.claude/*
+!.claude/skills/
+!.claude/agents/
 
 # Build artifacts (apps/macos/build.sh runs from apps/macos/)
 apps/macos/CornerTasks.app/

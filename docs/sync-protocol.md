@@ -1,10 +1,15 @@
-# CornerTasks Sync Protocol (v0.2.0)
+# CornerTasks Sync Protocol (v2 REST / v3 WebSocket)
 
-This document is the wire-format contract between CornerTasks clients (macOS app, web app) and a CornerTasks backend (`backend/aws/`). It is normative: both clients and the server are implemented against this spec.
+This document is the wire-format contract between CornerTasks clients (macOS app, web app) and a CornerTasks backend. It is normative: both clients and every backend runtime are implemented against this spec.
 
 Cloud sync is **opt-in**. A CornerTasks install that has not enabled sync MUST NOT speak this protocol or make any network calls.
 
-Status: stable for v0.2.0. Authentication is Ed25519 request signing (§8) — required from day one.
+Status:
+
+- **§1–§9 (protocol v2, REST)** — stable since v0.2.0, **unchanged**. Authentication is Ed25519 request signing (§8), required from day one.
+- **§10–§13 (protocol v3, WebSocket transport)** — added in v0.3.0. v3 is a **new transport over the same event model**, not a new protocol. Identity (§1), encryption (§2, §4), the event shape (§3), conflict resolution (§5), the server-assigned `seq` (§5.1), the archive cutoff (§6) and authentication (§8) are all identical on both transports.
+
+Two backend runtimes implement this spec — AWS Lambda (`backend/aws/`) and a self-hosted Node server (`backend/server/`, packaged by `backend/docker/`). They share `backend/core/` and MUST be indistinguishable to a client except through the capabilities each advertises at §10.
 
 ## 1. Identity — `did:key`
 
@@ -453,3 +458,260 @@ Response:
   "nextCursor": "147"
 }
 ```
+
+---
+
+## 10. Transport negotiation (v3)
+
+A client MUST NOT assume a backend supports WebSocket. It asks.
+
+### 10.1 `GET /v1/meta`
+
+Unauthenticated. No parameters. Cacheable for at most 60 seconds.
+
+```json
+{
+  "protocolVersions": [2, 3],
+  "transports": ["ws", "rest"],
+  "wsUrl": "wss://example.ngrok.app/v1/sync/ws",
+  "audience": "https://example.ngrok.app"
+}
+```
+
+- `protocolVersions` — every major version this deployment speaks. A v2-only
+  backend omits `3`.
+- `transports` — MUST contain `"rest"`. MAY contain `"ws"`.
+- `wsUrl` — absolute `wss://` URL. Present if and only if `"ws"` is advertised.
+- `audience` — the deployment's canonical base URL, the same value returned by
+  `POST /v1/auth/challenge` (§8.1) and asserted as the `aud` claim of the bearer
+  JWT (§8.3). Self-hosted deployments source it from `PUBLIC_URL`; a deployment
+  MUST NOT derive it from the request's `Host` header, which would defeat the
+  misconfiguration guard clients rely on.
+
+### 10.2 Client selection
+
+1. `GET /v1/meta`. On any failure — 404, timeout, malformed body — assume
+   `{"protocolVersions":[2],"transports":["rest"]}`. This is what makes a
+   v0.3.0 client work against a v0.2.0 backend with no special-casing.
+2. If `"ws"` is advertised and WebSocket is available in the runtime, attempt
+   the §11 handshake.
+3. Otherwise poll per §7.
+
+**REST is not a degraded mode.** A deployment advertising only `rest` is fully
+supported, and every client MUST sync correctly against it indefinitely.
+
+## 11. WebSocket framing (v3)
+
+One JSON object per WebSocket message, UTF-8, always with a `type` field.
+Unknown `type` values MUST be ignored, not treated as errors — that is the
+forward-compatibility hinge. Frames larger than 1 MiB MUST be rejected.
+
+### 11.1 Handshake — `auth`
+
+Browsers cannot set an `Authorization` header when constructing a `WebSocket`,
+and API Gateway cannot read custom headers on `$connect`. The token therefore
+travels in the first frame, never in the URL — a query-string credential would
+be logged by every intermediary.
+
+Client → server, first frame after open:
+
+```json
+{ "type": "auth", "token": "eyJhbGciOiJFZERTQSIsImtpZCI6ImN0LXNlcnZlci1kZXYifQ..." }
+```
+
+Server → client:
+
+```json
+{ "type": "auth_ok", "accountDid": "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSdiCnPMkF4eRpwFNGGq" }
+```
+
+or
+
+```json
+{ "type": "auth_err", "reason": "token_expired" }
+```
+
+- The bearer token is the one from §8.2. No second credential type exists.
+- The server MUST reject every frame other than `auth` until authentication
+  succeeds, and MUST close the socket with code `4401` after **5 seconds**
+  without a successful `auth`.
+- `reason` values match §8.6: `bad_token`, `token_expired`, `bad_audience`.
+- On `auth_err` with `token_expired`, the client re-runs the §8 challenge flow
+  and reconnects. On `bad_audience` it MUST NOT retry — that is a
+  misconfiguration, and it surfaces as the `failed` connection state.
+- **The account identity comes from the verified token, never from a
+  client-supplied field.** A server MUST NOT accept an `accountDid` in any
+  frame as authoritative.
+
+### 11.2 Backlog — `subscribe` → `events`* → `live`
+
+Client → server, after `auth_ok`:
+
+```json
+{ "type": "subscribe", "cursor": "147" }
+```
+
+Server → client, zero or more:
+
+```json
+{
+  "type": "events",
+  "events": [ Event, Event ],
+  "nextCursor": "149"
+}
+```
+
+then exactly once:
+
+```json
+{ "type": "live", "cursor": "149" }
+```
+
+- The server drains `seq > cursor` using the **same** query that backs
+  `GET /v1/sync/pull` (§7.2). Ordering is by `seq` ascending, identical to REST.
+- The client persists `nextCursor` from every `events` frame, exactly as it does
+  for REST pull. The cursor is the single point of truth shared by both
+  transports, which is what lets a client change transport mid-session.
+- **Events accepted while the drain is in flight MUST be buffered and flushed
+  before `live`.** The window between "read the backlog" and "start listening"
+  is where a naive implementation silently drops events; closing it is
+  mandatory, not an optimisation.
+- Chunking is at the server's discretion. A runtime with a per-message budget
+  (API Gateway) MUST chunk rather than truncate.
+- After `live`, the client MAY stand down its pull timer (§12.2).
+
+### 11.3 Outbound — `push` → `push_ack`
+
+Client → server:
+
+```json
+{
+  "type": "push",
+  "pushId": "b1a2c3d4-0000-1111-2222-333344445555",
+  "events": [ Event ]
+}
+```
+
+Server → client:
+
+```json
+{
+  "type": "push_ack",
+  "pushId": "b1a2c3d4-0000-1111-2222-333344445555",
+  "accepted": ["5d9e8d1d-5a83-4c1d-9c1f-2a8c4c6e7f01"],
+  "rejected": []
+}
+```
+
+- `pushId` is a client-generated UUID correlating the ack; it is not persisted.
+- Accept/reject semantics are **exactly** §7.1, including stale-rejection
+  counting as success and idempotency on `eventId`. Servers MUST route this
+  through the same code path as the REST push — a second implementation is how
+  the two transports drift apart.
+- A client MUST keep an event in its local queue until the `push_ack` arrives.
+  A socket that closes mid-push is a lost push, not a delivered one.
+
+### 11.4 Fan-out — `events` (unsolicited)
+
+After a successful write, the server delivers the accepted events as an
+`events` frame to **every other live connection of the same account**, never to
+the originating connection.
+
+- Delivery is best-effort. A peer that misses it recovers via its cursor on the
+  next `subscribe` — which is why the cursor, not the socket, is the durability
+  mechanism.
+- Fan-out MUST be scoped by the `accountDid` from the verified token. Cross-account
+  delivery is a critical defect; the §16 conformance suite tests for it explicitly.
+
+### 11.5 Heartbeat — `ping` / `pong`
+
+```json
+{ "type": "ping", "t": 1755264000000 }
+{ "type": "pong", "t": 1755264000000 }
+```
+
+- The server sends `ping` every **30 seconds** and closes a connection that has
+  not answered within **60 seconds** (code `4408`).
+- The client MAY also ping; a server MUST answer with `pong` echoing `t`.
+- Clients MUST treat a missed heartbeat as a disconnect and follow §12 —
+  ngrok and mobile networks drop idle sockets without a close frame, so
+  absence of traffic is the only reliable signal.
+
+### 11.6 Close codes
+
+| Code | Meaning | Client action |
+|---|---|---|
+| `1000` | normal | reconnect if sync still enabled |
+| `4401` | auth failed or timed out | refresh token, reconnect once; then fall back |
+| `4403` | audience mismatch | do **not** retry; surface `failed` |
+| `4408` | heartbeat timeout | reconnect per §12.1 |
+| `4429` | too many connections for this account | fall back to REST, retry after 5 min |
+
+## 12. Reconnect and fallback (v3)
+
+### 12.1 Backoff
+
+Exponential with full jitter: `delay = random(0, min(30s, 1s * 2^attempt))`,
+`attempt` capped at 5. Reset to 0 on reaching `live`.
+
+Full jitter is required, not decorative: every device of one account typically
+loses a self-hosted backend at the same instant (laptop sleeps, tunnel
+restarts), and a deterministic backoff reconnects them in lockstep.
+
+### 12.2 The pull timer
+
+This is the rule that makes the fallback invisible, and the one most likely to
+be implemented wrongly:
+
+- The pull timer (§7.2, default 60s) starts whenever sync is enabled, **on both
+  transports**.
+- It is stood down **only** on receipt of `live` (§11.2) — never on socket
+  open, never on `auth_ok`.
+- It restarts **immediately** on any close, error, or heartbeat timeout.
+- The push queue is never gated on the socket. If no socket is `live`, pushes go
+  over REST.
+
+A client therefore never has a window in which neither transport is running.
+
+### 12.3 Giving up on WebSocket
+
+After **3** consecutive failed WebSocket attempts (any attempt that does not
+reach `live`), the client stops retrying and polls. It re-attempts WebSocket:
+
+- on the next app start or tab foreground,
+- when the network path changes,
+- after 15 minutes,
+
+whichever comes first. Close code `4403` disables WebSocket until the user
+changes the configured URL.
+
+### 12.4 Switching transports mid-session
+
+Legal at any time, in either direction, because both are driven by the same
+persisted cursor. On switching to WebSocket, `subscribe` with the cursor the
+REST path last persisted; on switching away, pull with the cursor the last
+`events` frame supplied. Neither direction may skip or replay an event.
+
+### 12.5 Tab visibility (web)
+
+Mobile Safari freezes or kills sockets on backgrounded tabs, usually without a
+close frame — the primary self-hosted use case is exactly a phone over a tunnel,
+so this must be handled, not discovered.
+
+On `visibilitychange` → hidden: close the socket cleanly and let the pull timer
+carry sync. On → visible: reconnect and `subscribe` with the persisted cursor.
+
+## 13. Compatibility
+
+| Client | Backend | Result |
+|---|---|---|
+| v2 | v2 | unchanged |
+| v2 | v3 | unchanged — v3 adds endpoints, changes none |
+| v3 | v2 | `/v1/meta` 404s → client assumes REST-only and polls |
+| v3 | v3 | negotiates WebSocket, falls back to REST on failure |
+
+- **No v2 endpoint changes in v3.** §7 and §8 are byte-for-byte what v0.2.0
+  shipped. Existing AWS deployments keep working without redeployment.
+- A v3 backend MUST continue to serve §7 REST endpoints for as long as it
+  serves WebSocket. REST is not deprecated.
+- Future frame types are additive; unknown `type` values are ignored (§11).

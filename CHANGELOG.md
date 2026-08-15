@@ -7,17 +7,32 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **v0.3.0 re-planned around the First Person Project (FPP).** The previous
-  plan (custom WebSocket sync, AWS + Docker/Postgres backends) is replaced:
-  `did:webvh` account hosted by a self-hosted VTA, per-device `did:peer`
-  identities, DIDComm v2.1 sync via a blind mediator, client configuration by
-  account DID only, local MCP server for AI agents, deployment target
-  Raspberry Pi Zero 2 W (systemd-run native binaries, no Docker) behind
-  Cloudflare Tunnel. New architecture contract in `docs/ARCHITECTURE.md`;
-  new iterations 15–27 in `ITERATIONS.md`; `AGENTS.md`/`README.md` updated;
-  `PROMPT.md` gains a mandatory scope-check/sub-iteration split and reads the
-  architecture doc section-scoped. The AWS backend will be archived at the
-  v0.3.0 release.
+- **v0.3.0 re-planned around backend flexibility; the FPP plan is abandoned.**
+  The July 2026 First Person Project plan (`did:webvh` account, per-device
+  `did:peer`, DIDComm v2.1 through a blind mediator, self-hosted VTA, local MCP
+  agents, Raspberry Pi deployment) is dropped in full and removed from
+  `ITERATIONS.md`; it is recoverable from git history if ever revived. v0.3.0 is
+  now: **a backend the user chooses** — the same core running either as AWS
+  Lambda or as a Docker container on their own machine — **WebSocket sync with
+  REST polling retained as a fallback** on both backends, and a
+  **connection-status indicator** in both apps. Identity (`did:key` from a BIP-39
+  mnemonic), AES-256-GCM event encryption, LWW conflict resolution and the
+  60-day archive cutoff are all unchanged. `backend/aws/` is no longer being
+  archived — AWS remains a supported deployment.
+- **v0.3.0 is planned as a dependency graph, not an iteration list.** The plan
+  moved from `ITERATIONS.md` to `plan/v0.3.0/` (`graph.yaml` plus one file per
+  node, each declaring its dependencies, model tier and the oracle that proves
+  it done). `make v030-status` reports readiness; the `v030-build` skill
+  executes the next ready node via model-tiered subagents (`ct-scribe`,
+  `ct-implementer`, `ct-architect`). New architecture contract in
+  `docs/ARCHITECTURE.md`.
+
+### Removed
+
+- **`PROMPT.md` retired.** The iteration-by-number agent driver is superseded by
+  the v0.3.0 build graph and the `v030-build` skill. Its scope-check convention
+  — split any unit too big for one cheap pass — carried over into that skill.
+  Recoverable from git history.
 - **New agent conventions** (`AGENTS.md`): every change adds a
   `CHANGELOG.md` entry under Unreleased, and documentation drift is fixed in
   the same PR it is noticed (or recorded in ITERATIONS.md Open questions).

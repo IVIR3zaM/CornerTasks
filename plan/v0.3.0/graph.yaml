@@ -1,0 +1,138 @@
+version: "0.3.0"
+
+# Model tiers. The executor MUST use the declared tier — that is the credit
+# optimisation. Escalate only if the node's oracle fails twice at its own tier,
+# and record the escalation in the commit message.
+#
+#   haiku  — mechanical edits with an exact spec and a fast oracle
+#   sonnet — implementation against a strong oracle (tests, compiler, validator)
+#   opus   — protocol design, cross-cutting contracts, prose that others depend on
+#
+# gate: human  — do not execute unattended; stop and surface the node.
+
+nodes:
+  # ---- contracts (everything else reads these) ---------------------------
+  - id: N01
+    title: Scope reset — retire the FPP plan, restate v0.3.0
+    deps: []
+    model: opus
+    gate: human
+    oracle: "bash scripts/check-arch-doc.sh"
+    status: done
+
+  - id: N02
+    title: Sync protocol v3 — WebSocket transport + REST fallback
+    deps: [N01]
+    model: opus
+    gate: human
+    oracle: "node scripts/check-protocol-doc.mjs"
+    status: done
+
+  - id: N03
+    title: Connection-status state contract
+    deps: [N02]
+    model: opus
+    oracle: "test -f docs/connection-status.md"
+    status: todo
+
+  # ---- backend core ------------------------------------------------------
+  - id: N04
+    title: Extract runtime-neutral core from backend/aws
+    deps: [N01]
+    model: sonnet
+    oracle: "cd backend/core && npm test"
+    status: todo
+
+  - id: N05
+    title: SQLite Store implementation
+    deps: [N04]
+    model: sonnet
+    oracle: "cd backend/core && CT_STORE=sqlite npm test"
+    status: todo
+
+  - id: N06
+    title: Env/file signing-key provider (drop SSM requirement)
+    deps: [N04]
+    model: haiku
+    oracle: "cd backend/core && npm test -- signing-key"
+    status: todo
+
+  - id: N07
+    title: HTTP adapter + standalone Node server
+    deps: [N04, N05, N06]
+    model: sonnet
+    oracle: "cd backend/server && npm test"
+    status: todo
+
+  - id: N08
+    title: WebSocket server (self-hosted runtime)
+    deps: [N02, N07]
+    model: opus
+    oracle: "cd backend/server && npm run test:ws"
+    status: todo
+
+  - id: N09
+    title: Docker packaging + ngrok profile
+    deps: [N07, N08]
+    model: sonnet
+    oracle: "bash backend/docker/smoke.sh"
+    status: todo
+
+  - id: N10
+    title: AWS WebSocket support (API Gateway WS API)
+    deps: [N02, N04]
+    model: opus
+    oracle: "cd backend/aws && npm test && sam validate"
+    status: todo
+
+  # ---- clients -----------------------------------------------------------
+  - id: N11
+    title: Design schema for the connection-status indicator
+    deps: [N03]
+    model: sonnet
+    oracle: "make design-validate"
+    status: todo
+
+  - id: N12
+    title: macOS transport abstraction + WS client
+    deps: [N02]
+    model: sonnet
+    oracle: "cd apps/macos && swift test"
+    status: todo
+
+  - id: N13
+    title: macOS connection-status indicator
+    deps: [N11, N12]
+    model: sonnet
+    oracle: "cd apps/macos && swift test"
+    status: todo
+
+  - id: N14
+    title: Web transport abstraction + WS client
+    deps: [N02]
+    model: sonnet
+    oracle: "cd apps/web && npm test"
+    status: todo
+
+  - id: N15
+    title: Web connection-status indicator
+    deps: [N11, N14]
+    model: sonnet
+    oracle: "cd apps/web && npm test"
+    status: todo
+
+  # ---- integration -------------------------------------------------------
+  - id: N16
+    title: Docker-backed integration harness (both transports)
+    deps: [N09, N12, N14]
+    model: sonnet
+    oracle: "bash scripts/test-integration.sh"
+    status: todo
+
+  - id: N17
+    title: Release v0.3.0
+    deps: [N10, N13, N15, N16]
+    model: opus
+    gate: human
+    oracle: "bash scripts/test-all.sh"
+    status: todo
