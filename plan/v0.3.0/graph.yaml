@@ -55,7 +55,7 @@ nodes:
     deps: [N04]
     model: haiku
     oracle: "cd backend/core && npm test -- signing-key"
-    status: todo
+    status: done
 
   - id: N07
     title: HTTP adapter + standalone Node server
