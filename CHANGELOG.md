@@ -5,6 +5,40 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Connection-status contract** (`docs/connection-status.md`): the v0.3.0 sync
+  indicator now has one specified state vocabulary shared by the macOS and web
+  apps — `disabled`, `checking`, `live`, `polling`, `syncing`, `queued`,
+  `failed` — each with its circle colour, pulse, English phrase, and the exact
+  condition that produces it, plus precedence when several apply, a 500 ms
+  minimum dwell so the dot cannot strobe, and the `color.conn.<state>` design
+  tokens. `live` (WebSocket) and `polling` (REST fallback) stay visibly
+  distinct, so you can tell that real-time delivery is degraded even though
+  sync still works, and a WebSocket that will not connect never shows as
+  "Disconnected" while polling is carrying your data.
+- **Design schema for the connection-status indicator**: `design/` now
+  expresses the connection-status contract as the shared, platform-agnostic
+  source of truth ahead of any app code — seven `color.conn.<state>` tokens
+  (light + dark), the `ConnectionStatus` component (`state`, `pending`,
+  `detail`, a derived `pulse`), the nine `settings.cloud.status.*` text keys,
+  and the `settings.cloud.status` node at the head of the Settings cloud
+  section, wired through `sync.connectionState` in the actions/bindings
+  registry for both platforms. No SwiftUI/React implementation yet (N13/N15).
+- **Web WebSocket sync transport** (`apps/web/src/sync/WebSocketTransport.ts`,
+  `NegotiatingTransport.ts`): the web app can now sync over the v3 WebSocket
+  framing (`docs/sync-protocol.md` §11), with first-frame auth (browsers can't
+  set an `Authorization` header on a `WebSocket`), and negotiates it via
+  `/v1/meta`, falling back to the existing REST transport per §12 when a
+  backend doesn't advertise WebSocket, a socket drops mid-session, or the
+  runtime gives up after repeated failures — full-jitter exponential backoff,
+  cursor-resumed reconnects, and no event loss or duplication across a
+  transport switch. On `document.hidden` the socket closes cleanly and REST
+  polling carries sync; on becoming visible again it reconnects and drains
+  from the persisted cursor, so a backgrounded (e.g. Mobile-Safari-frozen) tab
+  never silently misses an event. `SyncEngine.connectionState()` exposes the
+  same `ConnectionState` vocabulary `docs/connection-status.md` defines.
+
 ### Changed
 
 - **v0.3.0 re-planned around backend flexibility; the FPP plan is abandoned.**
@@ -26,6 +60,49 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   executes the next ready node via model-tiered subagents (`ct-scribe`,
   `ct-implementer`, `ct-architect`). New architecture contract in
   `docs/ARCHITECTURE.md`.
+- **Backend split into `backend/core/` (runtime-neutral) and `backend/aws/`
+  (Lambda-specific).** Sync/auth handlers, JWT, DID verification, request
+  validation and the `Store` interface now live in `backend/core/`, importable
+  by any runtime; `backend/aws/` keeps only the DynamoDB store, the SSM signing
+  key, `template.yaml`, and thin Lambda entry points that wire the two
+  together. No wire-protocol or deployment behavior changes — deploying
+  `backend/aws/` still works exactly as before. This is prep for the
+  self-hosted container runtime landing in a later v0.3.0 node.
+- **`backend/core` gains a SQLite-backed `Store`** (`src/lib/sqlite-store.ts`,
+  `node:sqlite`, no extra dependency) for the self-hosted runtime, so the
+  container survives restarts without DynamoDB. Per-account `seq` is
+  allocated with a single atomic `UPSERT ... RETURNING` statement, so
+  concurrent `putEvent` calls cannot collide; a stale-rejected write still
+  consumes a `seq` (a gap in the log), matching `memoryStore`. `CT_DB_PATH`
+  selects the database file; `src/lib/store-factory.ts` reads `CT_STORE` and
+  currently constructs `sqlite` (`memory`/`dynamo` are selected by the
+  runtimes that own them — see the file for why).
+- **`backend/core` gains an env/file JWT signing-key loader**, selected via
+  `CT_KEY_SOURCE=env|file`, for the self-hosted runtime landing in a later
+  v0.3.0 node — no AWS SSM dependency required. `JWT_PRIVATE_KEY`/
+  `JWT_PUBLIC_KEY` (or `JWT_SECRET` for HS256) for `env`; the matching
+  `*_FILE` variables for `file`. Fails loudly on a missing or malformed key
+  rather than generating an ephemeral one. AWS Lambda is unaffected — it
+  keeps using its own SSM-backed key via `runtime-bootstrap.ts`.
+- **New `backend/server/` package**: a standalone `node:http` server for the
+  self-hosted runtime, serving the same `backend/core` handlers unmodified
+  over plain HTTP instead of Lambda — `/v1/auth/challenge`, `/v1/auth/token`,
+  `/v1/sync/push`, `/v1/sync/pull`, plus new `/v1/meta` (advertises supported
+  transports and the request `audience`) and `/v1/health` (unauthenticated
+  liveness probe). Reports `audience` from the required `PUBLIC_URL` env var
+  rather than the request host, so it stays stable behind a rotating ngrok
+  tunnel. A parity test proves the HTTP adapter never diverges from a direct
+  Lambda-style handler call.
+- **`backend/server/` now serves WebSocket sync** at `/v1/sync/ws` on the same
+  port as the REST API (`docs/sync-protocol.md` §11), so your devices see each
+  other's changes as they happen instead of on the next 60-second poll.
+  `/v1/meta` advertises it automatically, and REST polling keeps working
+  unchanged for anything that can't hold a socket open. Set `CT_WS=off` to
+  disable the socket endpoint (for a reverse proxy that can't pass `Upgrade`);
+  `/v1/meta` then advertises REST only, which clients treat as a fully
+  supported deployment. A push over either transport reaches the account's
+  other live sockets, so mixing transports across devices can't leave one of
+  them stale, and an account is capped at 8 concurrent sockets.
 
 ### Removed
 

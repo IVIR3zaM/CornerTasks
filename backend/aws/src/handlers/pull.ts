@@ -1,35 +1,14 @@
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
-import { errorResponse, json } from '../lib/response';
-import { assertSubjectMatches, requireBearer } from '../lib/auth';
-import { getStore } from '../lib/db';
-import { DidKey } from '../types/api';
-import type { PullResponse } from '../types/api';
+// Thin Lambda entry point: wires the AWS runtime (DynamoDB store, SSM
+// signing key) into core's seams, then delegates to the runtime-neutral
+// handler. No sync/auth logic lives here — see backend/core/src/handlers/pull.ts.
 
-export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
-  const auth = await requireBearer(event);
-  if (!auth.ok) return auth.response;
+import type { HttpEvent, HttpResult } from '../../../core/src/types/http';
+import { handler as corePull } from '../../../core/src/handlers/pull';
+import { ensureStore, ensureSigningKey } from '../lib/runtime-bootstrap';
 
-  const qs = event.queryStringParameters ?? {};
-  const accountDid = qs.accountDid;
-  // Opaque server-issued cursor; "0" or absent means "from the beginning".
-  const cursor = qs.cursor ?? '0';
-  if (!accountDid) {
-    return errorResponse(400, 'bad_request', 'invalid_did.no_account_did', 'qs object: ' + JSON.stringify(qs));
-  }
-  if (!DidKey.safeParse(accountDid).success) {
-    return errorResponse(400, 'bad_request', 'invalid_did.malformed_account_did', 'accountDid: ' + accountDid);
-  }
-  if (!/^[0-9]+$/.test(cursor)) {
-    return errorResponse(400, 'bad_request', 'invalid_cursor', 'cursor: ' + cursor);
-  }
+ensureStore();
 
-  const subjectErr = assertSubjectMatches(auth.subject, accountDid);
-  if (subjectErr) return subjectErr;
-
-  const result = await getStore().queryEventsAfter(accountDid, cursor);
-  const resp: PullResponse = {
-    events: result.events.map(({ archivedCompletedAt: _ignored, seq: _ignoredSeq, ...rest }) => rest),
-    nextCursor: result.nextCursor
-  };
-  return json(200, resp);
+export async function handler(event: HttpEvent): Promise<HttpResult> {
+  await ensureSigningKey();
+  return corePull(event);
 }

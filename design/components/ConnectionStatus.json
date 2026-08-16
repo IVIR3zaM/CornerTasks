@@ -1,0 +1,39 @@
+{
+  "$schema": "../schema/component.schema.json",
+  "name": "ConnectionStatus",
+  "description": "Cloud-sync connection indicator: a colored dot plus a phrase, per docs/connection-status.md. `state` is the seven-value enum §1 defines (also the value the live `dataBinding` resolves to at runtime — `state` here is the structural/preview default). `pending` and `detail` are the §4 parameters, meaningful only for the states that carry them (`queued`, `failed`). `pulse` is derived by the host from `state` (§6.1: pulse := state in {checking, syncing, failed}) and rendered solid under Reduce Motion / prefers-reduced-motion — it is not duplicated per state.",
+  "props": {
+    "state": {
+      "type": "enum",
+      "values": ["disabled", "checking", "live", "polling", "syncing", "queued", "failed"],
+      "required": true,
+      "default": "disabled",
+      "description": "One of the seven connection-status states (docs/connection-status.md §1), in that exact spelling. Drives the color.conn.<state> token and the settings.cloud.status.<state> phrase."
+    },
+    "dataBinding": {
+      "type": "string",
+      "required": true,
+      "description": "Registered binding (design/actions.json) that resolves the live value of `state` — 'sync.connectionState'."
+    },
+    "pending": {
+      "type": "number",
+      "required": false,
+      "default": 0,
+      "description": "Queue depth. Only rendered when state == 'queued' (§4); selects settings.cloud.status.queued.one vs .other."
+    },
+    "detail": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Diagnostic detail string for 'queued'/'failed' (§4). Not localized, surfaced on hover (macOS) / tap (web), never inline."
+    },
+    "pulse": {
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "description": "Derived from state (§6.1), never authored per-state. Solid under Reduce Motion."
+    }
+  },
+  "children": "none",
+  "a11y": { "role": "status", "labelFrom": "state" }
+}

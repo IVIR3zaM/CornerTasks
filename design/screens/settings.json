@@ -18,6 +18,9 @@
             "component": "Section",
             "props": { "titleKey": "settings.cloud.title.off", "padding": "{spacing.6}" },
             "children": [
+              { "id": "settings.cloud.status", "component": "ConnectionStatus",
+                "props": { "state": "disabled", "dataBinding": "sync.connectionState", "pending": 0, "detail": "", "pulse": false } },
+
               { "id": "settings.cloud.body",   "component": "Text", "props": { "textKey": "settings.cloud.body.off", "variant": "body" } },
               { "id": "settings.cloud.detail", "component": "Text", "props": { "textKey": "settings.cloud.body.off.detail", "variant": "muted" } },
 

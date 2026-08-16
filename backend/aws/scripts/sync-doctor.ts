@@ -27,8 +27,8 @@ import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha256';
 import { sha512 } from '@noble/hashes/sha512';
 import * as ed from '@noble/ed25519';
-import { didFromPublicKey, methodSpecificId } from '../src/lib/did';
-import { signEdDsa } from '../src/lib/jwt';
+import { didFromPublicKey, methodSpecificId } from '../../core/src/lib/did';
+import { signEdDsa } from '../../core/src/lib/jwt';
 
 ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 

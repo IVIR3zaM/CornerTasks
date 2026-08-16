@@ -33,7 +33,7 @@ nodes:
     deps: [N02]
     model: opus
     oracle: "test -f docs/connection-status.md"
-    status: todo
+    status: done
 
   # ---- backend core ------------------------------------------------------
   - id: N04
@@ -41,35 +41,35 @@ nodes:
     deps: [N01]
     model: sonnet
     oracle: "cd backend/core && npm test"
-    status: todo
+    status: done
 
   - id: N05
     title: SQLite Store implementation
     deps: [N04]
     model: sonnet
     oracle: "cd backend/core && CT_STORE=sqlite npm test"
-    status: todo
+    status: done
 
   - id: N06
     title: Env/file signing-key provider (drop SSM requirement)
     deps: [N04]
     model: haiku
     oracle: "cd backend/core && npm test -- signing-key"
-    status: todo
+    status: done
 
   - id: N07
     title: HTTP adapter + standalone Node server
     deps: [N04, N05, N06]
     model: sonnet
     oracle: "cd backend/server && npm test"
-    status: todo
+    status: done
 
   - id: N08
     title: WebSocket server (self-hosted runtime)
     deps: [N02, N07]
     model: opus
     oracle: "cd backend/server && npm run test:ws"
-    status: todo
+    status: done
 
   - id: N09
     title: Docker packaging + ngrok profile
@@ -91,11 +91,14 @@ nodes:
     deps: [N03]
     model: sonnet
     oracle: "make design-validate"
-    status: todo
+    status: done
 
   - id: N12
     title: macOS transport abstraction + WS client
-    deps: [N02]
+    # N12.md references "the N03 enum" / a shared ConnectionState contract —
+    # N03 was missing from deps here even though the node body depends on it.
+    # Added so macOS/web don't invent divergent state enums independently.
+    deps: [N02, N03]
     model: sonnet
     oracle: "cd apps/macos && swift test"
     status: todo
@@ -109,10 +112,12 @@ nodes:
 
   - id: N14
     title: Web transport abstraction + WS client
-    deps: [N02]
+    # N14.md references "the same ConnectionState union" as macOS (N12) —
+    # same missing-dependency issue as N12; see note there.
+    deps: [N02, N03]
     model: sonnet
     oracle: "cd apps/web && npm test"
-    status: todo
+    status: done
 
   - id: N15
     title: Web connection-status indicator

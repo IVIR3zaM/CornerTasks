@@ -268,6 +268,24 @@ const html = `<!doctype html>
     .dac-archive-due { display: inline-flex; align-items: center; gap: var(--spacing\\.3); }
     .dac-archive-due .dac-due-badge { margin-left: 0; }
     .dac-empty { text-align: center; padding: var(--spacing\\.12) var(--spacing\\.8); color: var(--color\\.text-muted); font-size: var(--font\\.size\\.13); }
+
+    .dac-conn { display: flex; flex-direction: column; gap: var(--spacing\\.3); margin-bottom: var(--spacing\\.4); }
+    .dac-conn-row { display: flex; align-items: center; gap: var(--spacing\\.3); font-size: var(--font\\.size\\.13); }
+    .dac-conn-dot { width: var(--spacing\\.6); height: var(--spacing\\.6); border-radius: 50%; flex-shrink: 0; }
+    .dac-conn-dot.conn-disabled { background: var(--color\\.conn\\.disabled); }
+    .dac-conn-dot.conn-checking { background: var(--color\\.conn\\.checking); }
+    .dac-conn-dot.conn-live     { background: var(--color\\.conn\\.live); }
+    .dac-conn-dot.conn-polling  { background: var(--color\\.conn\\.polling); }
+    .dac-conn-dot.conn-syncing  { background: var(--color\\.conn\\.syncing); }
+    .dac-conn-dot.conn-queued   { background: var(--color\\.conn\\.queued); }
+    .dac-conn-dot.conn-failed   { background: var(--color\\.conn\\.failed); }
+    .dac-conn-dot.pulse { animation: dac-conn-pulse var(--motion\\.normal) ease-in-out infinite alternate; }
+    .dac-conn-phrase { color: var(--color\\.text); }
+    .dac-conn-swatches { display: flex; flex-direction: column; gap: var(--spacing\\.2); margin-top: var(--spacing\\.3); padding-top: var(--spacing\\.3); border-top: 1px solid var(--color\\.border); }
+    .dac-conn-swatch { display: flex; align-items: center; gap: var(--spacing\\.3); font-size: var(--font\\.size\\.12); color: var(--color\\.text-muted); }
+    .dac-conn-swatch .dac-conn-dot { width: var(--spacing\\.4); height: var(--spacing\\.4); }
+    .dac-conn-label { font-size: var(--font\\.size\\.10); color: var(--color\\.text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: var(--spacing\\.2); }
+    @keyframes dac-conn-pulse { from { opacity: 1; } to { opacity: 0.35; } }
   </style>
 </head>
 <body>
@@ -345,6 +363,24 @@ const html = `<!doctype html>
     function dueBadge(state, label) {
       const cls = 'dac-due-badge' + (state && state !== 'none' ? ' due-' + state : '');
       return el('span', { class: cls }, [label || state]);
+    }
+
+    // docs/connection-status.md §6.1 — pulse is derived from state, never stored per state.
+    const CONN_PULSE_STATES = new Set(['checking', 'syncing', 'failed']);
+    // §5 — phrase for a given state, with the {n} / {delay} placeholders filled for
+    // preview purposes. Real apps compute 'delay' via formatRetryDelay (§4.1); the
+    // previewer just needs a representative example to show the string is wired.
+    function connPhrase(state, pending) {
+      if (state === 'queued') {
+        const n = Number.isFinite(pending) && pending > 0 ? pending : 3;
+        const key = n === 1 ? 'settings.cloud.status.queued.one' : 'settings.cloud.status.queued.other';
+        return text(key).replace('{n}', String(n));
+      }
+      if (state === 'failed') return text('settings.cloud.status.failed').replace('{delay}', '12s');
+      return text('settings.cloud.status.' + state);
+    }
+    function connDot(state, pulsing) {
+      return el('span', { class: 'dac-conn-dot conn-' + state + (pulsing ? ' pulse' : '') });
     }
 
     // Build an inline SVG element from the icon registry. macOS resolves the same
@@ -557,6 +593,29 @@ const html = `<!doctype html>
           ];
           if (rp.taskId) kids.push(el('div', { class: 'dac-debug-id', title: 'Task ID (debug)' }, [rp.taskId]));
           return wrap(el('div', { class: 'dac-task' + tint }, kids));
+        }
+        case 'ConnectionStatus': {
+          const boundVal = p.dataBinding ? currentFixture[p.dataBinding] : undefined;
+          const activeState = boundVal || p.state || 'disabled';
+          const activePulse = CONN_PULSE_STATES.has(activeState);
+          const primary = el('div', { class: 'dac-conn-row' }, [
+            connDot(activeState, activePulse),
+            el('span', { class: 'dac-conn-phrase' }, [connPhrase(activeState, p.pending)])
+          ]);
+          // Preview-only: show every state so both platform frames can be stepped
+          // through without a live sync engine. Not part of the merged schema tree.
+          const allStates = (BUNDLE.components.ConnectionStatus?.props?.state?.values || []);
+          const swatches = el('div', { class: 'dac-conn-swatches' },
+            allStates.map((s) => el('div', { class: 'dac-conn-swatch' }, [
+              connDot(s, CONN_PULSE_STATES.has(s)),
+              el('span', {}, [connPhrase(s, 3)])
+            ]))
+          );
+          return wrap(el('div', { class: 'dac-conn' }, [
+            primary,
+            el('div', { class: 'dac-conn-label' }, ['all states']),
+            swatches
+          ]));
         }
         case 'ArchiveRow': {
           const rp = rprops(node);

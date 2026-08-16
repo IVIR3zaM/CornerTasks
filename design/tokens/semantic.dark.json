@@ -16,6 +16,15 @@
       "today":    { "$value": "{color.orange.500}", "$type": "color" },
       "tomorrow": { "$value": "{color.yellow.500}", "$type": "color" },
       "future":   { "$value": "{color.blue.500}",   "$type": "color" }
+    },
+    "conn": {
+      "disabled": { "$value": "{color.neutral.500}", "$type": "color" },
+      "checking": { "$value": "{color.neutral.500}", "$type": "color" },
+      "live":     { "$value": "{color.green.500}",   "$type": "color" },
+      "polling":  { "$value": "{color.green.500}",   "$type": "color" },
+      "syncing":  { "$value": "{color.green.500}",   "$type": "color" },
+      "queued":   { "$value": "{color.blue.500}",    "$type": "color" },
+      "failed":   { "$value": "{color.red.500}",     "$type": "color" }
     }
   }
 }

@@ -1,0 +1,32 @@
+{
+  "name": "@cornertasks/backend-server",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Standalone Node HTTP server for the self-hosted CornerTasks backend. Serves the same runtime-neutral handlers from backend/core over node:http instead of Lambda, backed by SQLite instead of DynamoDB.",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint 'src/**/*.ts' 'tests/**/*.ts'",
+    "test": "jest",
+    "test:ws": "jest --testPathPattern=\"tests/ws\\.test\\.ts$\"",
+    "start": "ts-node src/index.ts"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}

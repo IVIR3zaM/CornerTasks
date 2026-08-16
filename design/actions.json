@@ -41,6 +41,8 @@
     "device.id":                 { "type": "string",  "readonly": true, "description": "Per-device UUID used by the sync engine." },
 
     "tasks.active":              { "type": "list",    "readonly": true, "of": "TaskRow",    "description": "Live list of non-archived tasks." },
-    "tasks.archived":            { "type": "list",    "readonly": true, "of": "ArchiveRow", "description": "Live list of archived tasks." }
+    "tasks.archived":            { "type": "list",    "readonly": true, "of": "ArchiveRow", "description": "Live list of archived tasks." },
+
+    "sync.connectionState":      { "type": "enum", "readonly": true, "values": ["disabled", "checking", "live", "polling", "syncing", "queued", "failed"], "description": "Resolved connection-status state (docs/connection-status.md §3.2)." }
   }
 }

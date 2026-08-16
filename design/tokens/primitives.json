@@ -26,7 +26,8 @@
     "blue":   { "500": { "$value": "#0a84ff", "$type": "color" } },
     "red":    { "500": { "$value": "#ff453a", "$type": "color" } },
     "orange": { "500": { "$value": "#ff9f0a", "$type": "color" } },
-    "yellow": { "500": { "$value": "#ffd60a", "$type": "color" } }
+    "yellow": { "500": { "$value": "#ffd60a", "$type": "color" } },
+    "green":  { "500": { "$value": "#30d158", "$type": "color" } }
   },
   "spacing": {
     "0":  { "$value": "0px",  "$type": "dimension" },
