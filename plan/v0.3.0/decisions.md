@@ -96,8 +96,46 @@ here if so.
 
 ---
 
-## No open decisions
+## D6 — `backend/aws`'s build is broken: nothing installs or type-checks `backend/core`
 
-All five are resolved. Add new ones here as they surface — an agent that hits an
-ambiguity it cannot resolve from the node file should append it, mark the
-affected node `blocked` in `graph.yaml`, and stop.
+**Blocks:** nothing directly (N11 is unaffected — this was found while running
+`scripts/test-all.sh` as collateral-breakage check for a `design/`-only node),
+but it will bite **N08, N09, N10** the moment their own verification touches
+`backend/aws`'s `tsc` build or a full `scripts/test-all.sh` run, and it is
+false-negative-prone: N10's oracle (`cd backend/aws && npm test && sam
+validate`) does **not** run `npm run build`, so a future pass could mark N10
+`done` while `backend/aws` still fails to type-check.
+
+**What's broken:** `backend/aws/src/lib/dynamo-store.ts` and its `tsconfig.json`
+pull `../core/src/**` in directly (no project reference, no package install).
+`backend/core/` has never had `npm install` run against it by anything —
+`scripts/test-all.sh`'s `backend/aws` step and `.github/workflows/ci-backend.yml`
+both predate the N04 core-extraction and only `npm ci` inside `backend/aws/`.
+Result: `cd backend/aws && npm run build` fails with `Cannot find module
+'@scure/base'` / `'@noble/ed25519'` / `'zod'` (core's deps never installed)
+plus several `Property '...' does not exist on type 'StoredEvent'` errors in
+`dynamo-store.ts` (looks like a real type drift from the `Store` interface
+move in N04/N05, not just a missing-install symptom — worth a second look
+once installs are fixed, since some of these may be genuine bugs rather than
+resolved by `npm install` alone).
+
+Confirmed pre-existing on `origin/v030/build` before this pass touched
+anything (reproduced with `git stash` back to a clean design-only diff).
+
+**Needs a human or a future pass to decide:** should `backend/core` become an
+npm workspace root (so `backend/aws`/`backend/server` share its
+`node_modules` and CI installs it once), or should each consumer keep
+independent installs with `backend/core` listed as a `file:` dependency in
+their `package.json` (simpler diff, one more `npm ci` per package in CI)?
+Either fixes the immediate breakage; the workspace approach also fixes
+`scripts/test-all.sh` and `.github/workflows/ci-backend.yml` never running
+`backend/core`'s own `lint`/`test`/`build` at all today, which is a second,
+separate gap.
+
+---
+
+## Open decisions
+
+D1–D5 are resolved. D6 above is open. Add new ones here as they surface — an
+agent that hits an ambiguity it cannot resolve from the node file should
+append it, mark the affected node `blocked` in `graph.yaml`, and stop.

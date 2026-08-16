@@ -91,7 +91,7 @@ nodes:
     deps: [N03]
     model: sonnet
     oracle: "make design-validate"
-    status: todo
+    status: done
 
   - id: N12
     title: macOS transport abstraction + WS client
