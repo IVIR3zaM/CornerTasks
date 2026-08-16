@@ -33,7 +33,7 @@ nodes:
     deps: [N02]
     model: opus
     oracle: "test -f docs/connection-status.md"
-    status: todo
+    status: done
 
   # ---- backend core ------------------------------------------------------
   - id: N04
