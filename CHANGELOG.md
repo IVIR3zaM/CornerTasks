@@ -5,6 +5,19 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Connection-status contract** (`docs/connection-status.md`): the v0.3.0 sync
+  indicator now has one specified state vocabulary shared by the macOS and web
+  apps — `disabled`, `checking`, `live`, `polling`, `syncing`, `queued`,
+  `failed` — each with its circle colour, pulse, English phrase, and the exact
+  condition that produces it, plus precedence when several apply, a 500 ms
+  minimum dwell so the dot cannot strobe, and the `color.conn.<state>` design
+  tokens. `live` (WebSocket) and `polling` (REST fallback) stay visibly
+  distinct, so you can tell that real-time delivery is degraded even though
+  sync still works, and a WebSocket that will not connect never shows as
+  "Disconnected" while polling is carrying your data.
+
 ### Changed
 
 - **v0.3.0 re-planned around backend flexibility; the FPP plan is abandoned.**
