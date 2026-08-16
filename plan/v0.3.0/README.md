@@ -22,6 +22,11 @@ which is **abandoned** — no mediator, no VTA, no `did:webvh`, no MCP agents.
 Carried over unchanged from v0.2.0: `did:key`/mnemonic identity, AES-256-GCM
 event encryption, LWW conflict resolution, the 60-day archive cutoff.
 
+**New here?** [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) explains the method itself —
+what an oracle and a gate are, how the agents and skills fit together, diagrams
+of the execution pass and of this graph, and how to apply the same approach to
+other work.
+
 ## Why a graph and not an iteration list
 
 `ITERATIONS.md` is a linear list — it assumes each step starts when the one
