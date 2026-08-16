@@ -17,6 +17,14 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   distinct, so you can tell that real-time delivery is degraded even though
   sync still works, and a WebSocket that will not connect never shows as
   "Disconnected" while polling is carrying your data.
+- **Design schema for the connection-status indicator**: `design/` now
+  expresses the connection-status contract as the shared, platform-agnostic
+  source of truth ahead of any app code — seven `color.conn.<state>` tokens
+  (light + dark), the `ConnectionStatus` component (`state`, `pending`,
+  `detail`, a derived `pulse`), the nine `settings.cloud.status.*` text keys,
+  and the `settings.cloud.status` node at the head of the Settings cloud
+  section, wired through `sync.connectionState` in the actions/bindings
+  registry for both platforms. No SwiftUI/React implementation yet (N13/N15).
 
 ### Changed
 

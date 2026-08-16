@@ -187,6 +187,7 @@ if (fs.existsSync(iconsPath)) {
 // Add an entry to this list when a new state-driven visual prop is introduced.
 const stateRules = [
   { components: ['TaskRow', 'ArchiveRow'], prop: 'dueState', tokenPrefix: 'color.due.', exempt: ['none'] },
+  { components: ['ConnectionStatus'], prop: 'state', tokenPrefix: 'color.conn.', exempt: [] },
 ];
 for (const r of stateRules) {
   const seen = new Set();

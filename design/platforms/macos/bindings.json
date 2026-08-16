@@ -32,7 +32,8 @@
       "account.qrPng",
       "device.id",
       "tasks.active",
-      "tasks.archived"
+      "tasks.archived",
+      "sync.connectionState"
     ]
   }
 }

@@ -31,6 +31,7 @@
     "ui.showQR":                false,
     "ui.showQRScan":            false,
     "ui.showEnableSheet":       false,
-    "ui.enableUrl":             ""
+    "ui.enableUrl":             "",
+    "sync.connectionState":     "polling"
   }
 }

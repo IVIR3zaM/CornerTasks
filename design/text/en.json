@@ -34,6 +34,16 @@
     "settings.cloud.enable":  "Enable cloud sync",
     "settings.cloud.disable": "Disable cloud sync",
 
+    "settings.cloud.status.disabled":     "Sync off",
+    "settings.cloud.status.checking":     "Connecting…",
+    "settings.cloud.status.live":         "Connected",
+    "settings.cloud.status.polling":      "Connected (polling)",
+    "settings.cloud.status.syncing":      "Syncing…",
+    "settings.cloud.status.queued.one":   "1 change waiting",
+    "settings.cloud.status.queued.other": "{n} changes waiting",
+    "settings.cloud.status.failed":       "Disconnected — retrying in {delay}",
+    "settings.cloud.status.a11yLabel":    "Sync status: {phrase}",
+
     "settings.account.title": "Account",
     "settings.account.did":   "DID",
     "settings.account.deviceId": "Device ID",
