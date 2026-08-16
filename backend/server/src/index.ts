@@ -5,21 +5,28 @@
 // /v1/meta and /v1/health over plain node:http.
 
 import { bootstrap } from './lib/bootstrap';
-import { createHttpServer } from './server';
+import { createServerStack } from './server';
+import { WS_PATH, wsEnabled } from './lib/ws-config';
 
 async function main(): Promise<void> {
   const { domain, closeStore } = await bootstrap();
   const port = Number(process.env.PORT ?? 8787);
-  const server = createHttpServer(domain);
+  const stack = createServerStack(domain);
 
-  await new Promise<void>((resolve) => server.listen(port, resolve));
+  await new Promise<void>((resolve) => stack.server.listen(port, resolve));
   // eslint-disable-next-line no-console
-  console.log(`cornertasks-server listening on :${port} (audience domain: ${domain.domainName})`);
+  console.log(
+    `cornertasks-server listening on :${port} (audience domain: ${domain.domainName}; ` +
+      `websocket: ${wsEnabled() ? WS_PATH : 'disabled (CT_WS=off)'})`
+  );
 
   const shutdown = (signal: string): void => {
     // eslint-disable-next-line no-console
     console.log(`cornertasks-server: received ${signal}, shutting down`);
-    server.close(() => {
+    // `stack.close()` closes live sockets first — an open WebSocket otherwise
+    // keeps `http.Server.close()` from ever calling back, and the container
+    // would sit until Docker's SIGKILL.
+    void stack.close().then(() => {
       closeStore();
       process.exit(0);
     });

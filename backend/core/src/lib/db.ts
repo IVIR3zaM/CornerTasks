@@ -15,6 +15,36 @@ export interface StoredEvent extends SyncEvent {
   seq?: number;
 }
 
+/** Projects a `StoredEvent` down to the on-the-wire `Event` shape.
+ *
+ *  `seq` and `archivedCompletedAt` are server-side bookkeeping: `seq` is
+ *  surfaced to clients only as the opaque `nextCursor`, and
+ *  `archivedCompletedAt` is a retention index. Both MUST be stripped before an
+ *  event leaves the server, on **every** transport — `GET /v1/sync/pull`
+ *  (§7.2) and the WebSocket `events` frame (§11.2, §11.4) deliver the same
+ *  bytes, and §12.4 lets a client change transport mid-session, so a field
+ *  present on one and absent on the other would surface as a decode failure or
+ *  a spurious diff the moment a client switched. One function, both callers.
+ *
+ *  Written as an explicit allowlist rather than a rest-spread that drops the
+ *  two known extras: a field added to `StoredEvent` for future server
+ *  bookkeeping would be *published* by a denylist and silently ignored here,
+ *  and `tsc` flags the reverse case (a genuinely new wire field) as a missing
+ *  property. The wire shape is a contract two independent clients parse; it
+ *  should only ever change on purpose. */
+export function toWireEvent(ev: StoredEvent): SyncEvent {
+  return {
+    accountDid: ev.accountDid,
+    deviceId: ev.deviceId,
+    eventId: ev.eventId,
+    taskId: ev.taskId,
+    updatedAt: ev.updatedAt,
+    op: ev.op,
+    ciphertext: ev.ciphertext,
+    nonce: ev.nonce
+  };
+}
+
 export interface AuthChallenge {
   accountDid: string;
   challenge: string;

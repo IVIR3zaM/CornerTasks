@@ -1,7 +1,7 @@
 import type { HttpEvent, HttpResult } from '../types/http';
 import { errorResponse, json } from '../lib/response';
 import { assertSubjectMatches, requireBearer } from '../lib/auth';
-import { getStore } from '../lib/db';
+import { getStore, toWireEvent } from '../lib/db';
 import { DidKey } from '../types/api';
 import type { PullResponse } from '../types/api';
 
@@ -28,7 +28,7 @@ export async function handler(event: HttpEvent): Promise<HttpResult> {
 
   const result = await getStore().queryEventsAfter(accountDid, cursor);
   const resp: PullResponse = {
-    events: result.events.map(({ archivedCompletedAt: _ignored, seq: _ignoredSeq, ...rest }) => rest),
+    events: result.events.map(toWireEvent),
     nextCursor: result.nextCursor
   };
   return json(200, resp);

@@ -93,6 +93,16 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rather than the request host, so it stays stable behind a rotating ngrok
   tunnel. A parity test proves the HTTP adapter never diverges from a direct
   Lambda-style handler call.
+- **`backend/server/` now serves WebSocket sync** at `/v1/sync/ws` on the same
+  port as the REST API (`docs/sync-protocol.md` §11), so your devices see each
+  other's changes as they happen instead of on the next 60-second poll.
+  `/v1/meta` advertises it automatically, and REST polling keeps working
+  unchanged for anything that can't hold a socket open. Set `CT_WS=off` to
+  disable the socket endpoint (for a reverse proxy that can't pass `Upgrade`);
+  `/v1/meta` then advertises REST only, which clients treat as a fully
+  supported deployment. A push over either transport reaches the account's
+  other live sockets, so mixing transports across devices can't leave one of
+  them stale, and an account is capped at 8 concurrent sockets.
 
 ### Removed
 

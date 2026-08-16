@@ -52,13 +52,15 @@ function makeSyncEvent(accountDid: string, overrides: Partial<Record<string, str
   };
 }
 
-test('GET /v1/meta — unauthenticated, advertises rest transport and the configured audience', async () => {
+test('GET /v1/meta — unauthenticated, advertises both transports and the configured audience', async () => {
   const res = await fetch(`${harness.baseUrl}/v1/meta`);
   expect(res.status).toBe(200);
   const body = (await res.json()) as { protocolVersions: number[]; transports: string[]; audience: string; wsUrl?: string };
   expect(body.protocolVersions).toEqual(expect.arrayContaining([2, 3]));
-  expect(body.transports).toEqual(['rest']);
-  expect(body.wsUrl).toBeUndefined();
+  // §10.1: `transports` MUST contain "rest"; "ws" is advertised because N08
+  // attaches a real socket server, and `wsUrl` is present iff "ws" is.
+  expect(body.transports).toEqual(['ws', 'rest']);
+  expect(body.wsUrl).toBe('wss://ct-server-test.example/v1/sync/ws');
   expect(body.audience).toBe(harness.audience);
 });
 
