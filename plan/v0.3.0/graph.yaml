@@ -95,7 +95,10 @@ nodes:
 
   - id: N12
     title: macOS transport abstraction + WS client
-    deps: [N02]
+    # N12.md references "the N03 enum" / a shared ConnectionState contract —
+    # N03 was missing from deps here even though the node body depends on it.
+    # Added so macOS/web don't invent divergent state enums independently.
+    deps: [N02, N03]
     model: sonnet
     oracle: "cd apps/macos && swift test"
     status: todo
@@ -109,7 +112,9 @@ nodes:
 
   - id: N14
     title: Web transport abstraction + WS client
-    deps: [N02]
+    # N14.md references "the same ConnectionState union" as macOS (N12) —
+    # same missing-dependency issue as N12; see note there.
+    deps: [N02, N03]
     model: sonnet
     oracle: "cd apps/web && npm test"
     status: todo
