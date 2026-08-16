@@ -69,7 +69,7 @@ nodes:
     deps: [N02, N07]
     model: opus
     oracle: "cd backend/server && npm run test:ws"
-    status: todo
+    status: done
 
   - id: N09
     title: Docker packaging + ngrok profile
