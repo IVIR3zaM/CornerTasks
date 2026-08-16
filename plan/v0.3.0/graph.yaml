@@ -117,7 +117,7 @@ nodes:
     deps: [N02, N03]
     model: sonnet
     oracle: "cd apps/web && npm test"
-    status: todo
+    status: done
 
   - id: N15
     title: Web connection-status indicator
