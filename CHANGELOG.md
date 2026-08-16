@@ -50,6 +50,15 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `*_FILE` variables for `file`. Fails loudly on a missing or malformed key
   rather than generating an ephemeral one. AWS Lambda is unaffected — it
   keeps using its own SSM-backed key via `runtime-bootstrap.ts`.
+- **New `backend/server/` package**: a standalone `node:http` server for the
+  self-hosted runtime, serving the same `backend/core` handlers unmodified
+  over plain HTTP instead of Lambda — `/v1/auth/challenge`, `/v1/auth/token`,
+  `/v1/sync/push`, `/v1/sync/pull`, plus new `/v1/meta` (advertises supported
+  transports and the request `audience`) and `/v1/health` (unauthenticated
+  liveness probe). Reports `audience` from the required `PUBLIC_URL` env var
+  rather than the request host, so it stays stable behind a rotating ngrok
+  tunnel. A parity test proves the HTTP adapter never diverges from a direct
+  Lambda-style handler call.
 
 ### Removed
 
