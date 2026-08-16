@@ -2,7 +2,7 @@
 
 Guidance for AI agents working on this repository. Read this before making changes.
 
-> Iterations for **v0.3.0** are tracked in [`ITERATIONS.md`](ITERATIONS.md). If you are picking up work, start there — execute exactly one iteration per pass and stop. The architectural contract for v0.3.0 is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); read it before any v0.3.0 iteration.
+> **v0.3.0 work is a dependency graph, not an iteration list.** Start at [`plan/v0.3.0/README.md`](plan/v0.3.0/README.md); run `make v030-status` to see which nodes are ready, and execute exactly one node per pass. The architectural contract is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — read it before any v0.3.0 node. [`ITERATIONS.md`](ITERATIONS.md) is frozen v0.2.0 history. New to the graph model? [`plan/v0.3.0/HOW-IT-WORKS.md`](plan/v0.3.0/HOW-IT-WORKS.md) explains it.
 
 ## Product
 
@@ -17,7 +17,9 @@ CornerTasks is a small floating task widget. The first interface is a macOS app:
 - **End-to-end encryption**: task fields are encrypted on-device with an AES-256-GCM key derived from the same BIP-39 mnemonic. The backend stores ciphertext only — neither the maintainer nor the AWS account owner can decrypt user data.
 - **Sync** with conflict resolution by event timestamp; archived items older than 2 months are not synced.
 
-**v0.3.0 (in progress)** turns CornerTasks into a **real-world example of the First Person Project**: the account becomes a `did:webvh` hosted by a personal VTA (self-hosted, e.g. a Raspberry Pi behind Cloudflare Tunnel), each device is a PNM with its own revocable `did:peer`, sync flows device-to-device over DIDComm v2.1 through a blind mediator (no central task storage), clients are configured by the account DID alone (all endpoints discovered from DID documents), and AI agents get their own accountable DIDs behind a local MCP server. The AWS backend and the mnemonic identity are removed at release. Full picture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Sections below that describe the v0.2.0 sync/identity stack remain accurate for the code on `main` until the iteration that replaces them lands — each such iteration updates this file.
+**v0.3.0 (in progress)** makes the backend a **choice rather than a dependency**. The same server core (`backend/core/`) runs either as AWS Lambda or as a Docker container the user hosts themselves — including on their own laptop, with an outbound tunnel so their phone can reach it — so task data can be kept off third-party infrastructure entirely. Clients sync over **WebSocket**, with the v0.2.0 REST polling retained as a fully-supported fallback on both backends, and both apps gain a **connection-status indicator**. Identity (`did:key` from a BIP-39 mnemonic), AES-256-GCM encryption, LWW conflict resolution and the 60-day archive cutoff are **unchanged**, so the sections below stay accurate. Full picture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+> An earlier v0.3.0 plan (July 2026) rebuilt CornerTasks as a First Person Project example — `did:webvh`, DIDComm v2.1, a blind mediator, a personal VTA on a Raspberry Pi. **It was abandoned on 2026-08-15 and none of it is in scope.** Ignore any reference to it you find in older commits.
 
 ## Core principles
 
@@ -66,21 +68,18 @@ If a change feels like it needs a new abstraction layer, push back: most additio
 │       │   └── ui/
 │       └── tests/
 │
-├── backend/
-│   └── aws/                      — Serverless (SAM or CDK; chosen in iteration 3)
-│       ├── src/
-│       │   ├── handlers/         — push, pull, list-since
-│       │   ├── lib/              — DynamoDB access, validation
-│       │   └── types/            — shared API request/response types
-│       ├── tests/
-│       └── template.yaml | cdk/  — infra
+├── backend/                      — v0.3.0: core + two runtimes (see below)
+│   ├── core/                     — runtime-neutral: handlers, auth, JWT, Store, tests
+│   ├── aws/                      — Lambda entries, DynamoDB store, SSM keys, template.yaml
+│   ├── server/                   — standalone node:http + WebSocket server
+│   └── docker/                   — Dockerfile, compose.yml, ngrok profile
 │
 └── docs/                         — protocol / encryption / sync notes (added as needed)
 ```
 
 In v0.1.0 the macOS app lives at the repo root. Iteration 1 in [`ITERATIONS.md`](ITERATIONS.md) moves it under `apps/macos/`.
 
-**v0.3.0 layout changes** (land iteration by iteration): `deploy/` (systemd units + cross-compiled native binaries for the self-hosted VTA + DIDComm mediator + Cloudflare Tunnel — no Docker on the Pi — `.env`-driven, plus bootstrap scripts and a `dev.sh` local stack), `apps/mcp/` (local MCP server for AI agents), new `FPP/`/`fpp/` modules inside each app, and at release `backend/aws/` moves to `archive/backend-aws-v0.2/`.
+**v0.3.0 layout changes** (land node by node): `backend/` splits into `core/` (runtime-neutral handlers, auth, JWT, `Store` interface, tests), `aws/` (Lambda entry points, DynamoDB store, SSM keys, `template.yaml`), `server/` (standalone Node HTTP + WebSocket server) and `docker/` (Dockerfile, compose, ngrok profile). `plan/v0.3.0/` holds the build graph. `backend/aws/` is **not** archived — AWS stays a supported deployment.
 
 ## Design schema (SSOT for UI structure)
 
