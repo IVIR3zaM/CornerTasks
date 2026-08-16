@@ -25,6 +25,19 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the `settings.cloud.status` node at the head of the Settings cloud
   section, wired through `sync.connectionState` in the actions/bindings
   registry for both platforms. No SwiftUI/React implementation yet (N13/N15).
+- **Web WebSocket sync transport** (`apps/web/src/sync/WebSocketTransport.ts`,
+  `NegotiatingTransport.ts`): the web app can now sync over the v3 WebSocket
+  framing (`docs/sync-protocol.md` §11), with first-frame auth (browsers can't
+  set an `Authorization` header on a `WebSocket`), and negotiates it via
+  `/v1/meta`, falling back to the existing REST transport per §12 when a
+  backend doesn't advertise WebSocket, a socket drops mid-session, or the
+  runtime gives up after repeated failures — full-jitter exponential backoff,
+  cursor-resumed reconnects, and no event loss or duplication across a
+  transport switch. On `document.hidden` the socket closes cleanly and REST
+  polling carries sync; on becoming visible again it reconnects and drains
+  from the persisted cursor, so a backgrounded (e.g. Mobile-Safari-frozen) tab
+  never silently misses an event. `SyncEngine.connectionState()` exposes the
+  same `ConnectionState` vocabulary `docs/connection-status.md` defines.
 
 ### Changed
 

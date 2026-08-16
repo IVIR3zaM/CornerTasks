@@ -16,6 +16,7 @@ import { isoParse, makeEvent, openEvent, type SyncEvent } from './syncEvent';
 import { AuthSession } from './authSession';
 import type { SyncTransport, SyncTransportError } from './syncTransport';
 import { isSyncTransportError } from './syncTransport';
+import type { ConnectionState } from './connectionState';
 
 /** Persists the opaque server-issued pull cursor between sessions. */
 export interface SyncCursorStorage {
@@ -96,6 +97,27 @@ export const fireCloudSyncIntervalChanged = (): void => {
   window.dispatchEvent(new CustomEvent(CLOUD_SYNC_INTERVAL_CHANGED_EVENT));
 };
 
+/** The extra surface `NegotiatingTransport` (N14) offers beyond `SyncTransport`.
+ *  Detected structurally so `SyncEngine` never needs to import
+ *  `NegotiatingTransport` — a plain `FetchTransport` (or a test's
+ *  `SyncTransport` stub) is simply not WS-capable and this whole path is skipped. */
+interface WsCapableTransport {
+  start(): void;
+  stop(): void;
+  setBearerProvider(fn: () => Promise<string>): void;
+  connectionState(): ConnectionState;
+}
+
+const isWsCapable = (t: SyncTransport): t is SyncTransport & WsCapableTransport => {
+  const c = t as Partial<WsCapableTransport>;
+  return (
+    typeof c.start === 'function' &&
+    typeof c.stop === 'function' &&
+    typeof c.setBearerProvider === 'function' &&
+    typeof c.connectionState === 'function'
+  );
+};
+
 export interface SyncEngineOptions {
   store: TaskStore;
   transport: SyncTransport;
@@ -136,6 +158,15 @@ export class SyncEngine {
   private pullTimer: unknown = null;
   private removeVisibilityListener: (() => void) | null = null;
 
+  /** Outcome of the most recently *completed* push/pull that reached the
+   *  network, per docs/connection-status.md §2.3 — an empty-queue early
+   *  return from `flushPushes()` deliberately does not write this. Feeds the
+   *  simplified `connectionState()` fallback used when `transport` is not
+   *  WS-capable (see `WsCapableTransport` above); N15 owns the full
+   *  precedence function this is a building block for, not a replacement of. */
+  private lastPushOutcome: 'none' | 'ok' | 'failed' = 'none';
+  private lastPullOutcome: 'none' | 'ok' | 'failed' = 'none';
+
   constructor(opts: SyncEngineOptions) {
     this.store = opts.store;
     this.transport = opts.transport;
@@ -158,6 +189,9 @@ export class SyncEngine {
     this.pendingFullResyncFn = opts.pendingFullResync ?? (() => false);
     this.clearPendingFullResyncFn = opts.clearPendingFullResync ?? (() => {});
     this.authSession = new AuthSession(this.identity, this.transport, { now: this.now });
+    if (isWsCapable(this.transport)) {
+      this.transport.setBearerProvider(() => this.authSession.bearer());
+    }
   }
 
   start(): void {
@@ -170,9 +204,22 @@ export class SyncEngine {
     }
     if (!this.visibility.isHidden()) this.scheduleTimers();
     this.removeVisibilityListener = this.visibility.addListener(() => this.onVisibilityChange());
+    if (isWsCapable(this.transport)) this.transport.start();
+  }
+
+  /** The connection-status vocabulary (docs/connection-status.md §1), shared
+   *  with macOS. Delegates to the transport when it's WS-capable
+   *  (`NegotiatingTransport`, N14); otherwise falls back to a REST-only
+   *  reading from this engine's own push/pull outcomes. */
+  connectionState(): ConnectionState {
+    if (isWsCapable(this.transport)) return this.transport.connectionState();
+    if (this.lastPushOutcome === 'none' && this.lastPullOutcome === 'none') return 'checking';
+    if (this.lastPushOutcome === 'failed' || this.lastPullOutcome === 'failed') return 'failed';
+    return 'polling';
   }
 
   stop(): void {
+    if (isWsCapable(this.transport)) this.transport.stop();
     this.cancelTimers();
     this.store.eventBuilder = null;
     if (this.removeVisibilityListener) {
@@ -247,7 +294,9 @@ export class SyncEngine {
       const response = await this.pushWithAuth(toSend);
       const toMark = [...response.accepted, ...response.rejected.map((r) => r.eventId)];
       if (toMark.length > 0) await this.store.markQueueRowsSent(toMark);
+      this.lastPushOutcome = 'ok';
     } catch (err) {
+      this.lastPushOutcome = 'failed';
       console.warn('[CornerTasks sync] push failed; will retry next tick', err);
     }
   }
@@ -297,7 +346,9 @@ export class SyncEngine {
         await this.applyRemote(event);
       }
       this.cursor.set(response.nextCursor);
+      this.lastPullOutcome = 'ok';
     } catch (err) {
+      this.lastPullOutcome = 'failed';
       console.warn('[CornerTasks sync] pull failed; will retry next tick', err);
     }
   }
@@ -422,3 +473,4 @@ const isAuthRetryable = (e: unknown): boolean => {
 
 // Re-export so tests can inject without importing the type directly.
 export type { SyncTransportError };
+export type { ConnectionState };
